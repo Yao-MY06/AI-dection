@@ -1,0 +1,20 @@
+# ESP-IDF build directory
+build/
+
+# SDK config backups
+sdkconfig.old
+sdkconfig.bsp.*
+
+# Dependencies lock (auto-generated)
+dependencies.lock
+
+# IDE
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db

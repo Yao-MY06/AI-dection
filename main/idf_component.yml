@@ -1,0 +1,9 @@
+description: BSP Display and camera example with AI Inference
+
+dependencies:
+  idf: ">=5.3"
+  espressif/esp32_p4_function_ev_board: "*"
+  espressif/esp_video: "*"
+  espressif/esp_codec_dev: "*"
+  espressif/esp-dl: "^3.0.0"  
+  espressif/esp32-camera: "*"
