@@ -177,7 +177,10 @@ static volatile uint8_t g_ppa_read_idx = CAM_BUF_IDX_NONE;
 static volatile uint8_t g_ai_reading_cam_buf_idx = CAM_BUF_IDX_NONE;
 static volatile bool g_has_camera_frame = false;
 static portMUX_TYPE cam_buf_spinlock = portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE ppa_spinlock = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool g_ppa_busy = false;
+static volatile uint32_t g_ppa_submit_cnt = 0;
+static volatile uint32_t g_ppa_done_cnt = 0;
 
 // === 麦克风 FFT 配置 ===
 #define I2S_SCK_IO  ((gpio_num_t)21)
@@ -505,7 +508,10 @@ void ui_event_task(void *pvParameters)
             
             // 处理拍照请求（内存拷贝在锁外完成）
             if (ev.type == CMD_BTN_CAPTURE) {
-                uint8_t buf_idx = g_ppa_read_idx;
+                uint8_t buf_idx;
+                portENTER_CRITICAL(&ppa_spinlock);
+                buf_idx = g_ppa_read_idx;
+                portEXIT_CRITICAL(&ppa_spinlock);
                 if (buf_idx >= NUM_BUFS || cam_buff[buf_idx] == nullptr) {
                     snprintf(ev.log_msg, sizeof(ev.log_msg), "\n[ERR] No camera frame yet!");
                 } else {
@@ -652,7 +658,10 @@ void ai_vision_task(void *pvParameters) {
                     input_tensor->get_dtype() == dl::DATA_TYPE_FLOAT ? "FLOAT" : "OTHER");
             }
 
-            uint8_t buf_idx = g_ppa_read_idx;
+            uint8_t buf_idx;
+            portENTER_CRITICAL(&ppa_spinlock);
+            buf_idx = g_ppa_read_idx;
+            portEXIT_CRITICAL(&ppa_spinlock);
             if (buf_idx >= NUM_BUFS || cam_buff[buf_idx] == nullptr) {
                 vTaskDelay(pdMS_TO_TICKS(20));
                 continue;
@@ -1140,10 +1149,13 @@ void sd_writer_task(void *pvParameters) {
 static bool app_ppa_done_cb(ppa_client_handle_t ppa_client, ppa_event_data_t *event_data, void *user_data)
 {
     // PPA 完成后，更新可读 buffer 索引，并交换写索引
+    portENTER_CRITICAL(&ppa_spinlock);
     g_ppa_read_idx = g_ppa_write_idx;
     g_ppa_write_idx = (g_ppa_write_idx + 1) % NUM_BUFS;
     g_ppa_busy = false;
+    g_ppa_done_cnt++;
     g_has_camera_frame = true;
+    portEXIT_CRITICAL(&ppa_spinlock);
     return false;
 }
 
@@ -1200,7 +1212,7 @@ static esp_err_t app_image_process(uint8_t *in_buf, uint32_t in_w, uint32_t in_h
     srm_config.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
     srm_config.scale_x = (float)CAM_W / (float)crop_w;
     srm_config.scale_y = (float)CAM_H / (float)crop_h;
-    srm_config.mode = PPA_TRANS_MODE_NON_BLOCKING;
+    srm_config.mode = PPA_TRANS_MODE_BLOCKING;
     
     return ppa_do_scale_rotate_mirror(ppa_srm_handle, &srm_config);
 }
@@ -1209,8 +1221,13 @@ static esp_err_t app_image_process(uint8_t *in_buf, uint32_t in_w, uint32_t in_h
 static void display_refresh_task(void *pvParameters)
 {
     uint8_t last_read_idx = CAM_BUF_IDX_NONE;
+    int64_t last_diag_us = esp_timer_get_time();
     while (1) {
-        uint8_t read_idx = g_ppa_read_idx;
+        uint8_t read_idx;
+        portENTER_CRITICAL(&ppa_spinlock);
+        read_idx = g_ppa_read_idx;
+        portEXIT_CRITICAL(&ppa_spinlock);
+
         if (read_idx != last_read_idx && read_idx < NUM_BUFS && cam_buff[read_idx] != nullptr) {
             last_read_idx = read_idx;
             if (bsp_display_lock(pdMS_TO_TICKS(5))) {
@@ -1220,6 +1237,22 @@ static void display_refresh_task(void *pvParameters)
                 bsp_display_unlock();
             }
         }
+
+        // 每 5 秒打印一次 PPA 诊断
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - last_diag_us > 5000000) {
+            uint32_t submit, done;
+            bool busy;
+            portENTER_CRITICAL(&ppa_spinlock);
+            submit = g_ppa_submit_cnt;
+            done = g_ppa_done_cnt;
+            busy = g_ppa_busy;
+            portEXIT_CRITICAL(&ppa_spinlock);
+            ESP_LOGI(TAG, "[PPA_DIAG] busy=%d submit=%lu done=%lu diff=%ld",
+                     busy, submit, done, (long)(submit - done));
+            last_diag_us = now_us;
+        }
+
         vTaskDelay(pdMS_TO_TICKS(33));  // 约 30fps 刷新
     }
 }
@@ -1228,35 +1261,53 @@ static void camera_video_frame_operation(uint8_t *camera_buf, uint8_t camera_buf
                                         uint32_t camera_buf_ves, size_t camera_buf_len) {
     if (g_emergency_active) return;
 
-    // 如果上一帧 PPA 还没完成，跳过本帧
+    // 加锁检查 PPA 状态，避免和 done_cb 竞态
+    portENTER_CRITICAL(&ppa_spinlock);
     if (g_ppa_busy) {
+        portEXIT_CRITICAL(&ppa_spinlock);
+        g_has_camera_frame = true;  // 告诉 AI 仍有可用帧
         return;
     }
+    g_ppa_busy = true;
+    uint8_t write_idx = g_ppa_write_idx;
+    portEXIT_CRITICAL(&ppa_spinlock);
 
     // 如果 AI 正在读取目标 buffer，跳过本帧
     portENTER_CRITICAL(&cam_buf_spinlock);
-    bool ai_reading = (g_ppa_write_idx == g_ai_reading_cam_buf_idx);
+    bool ai_reading = (write_idx == g_ai_reading_cam_buf_idx);
     portEXIT_CRITICAL(&cam_buf_spinlock);
-    if (ai_reading) return;
+    if (ai_reading) {
+        portENTER_CRITICAL(&ppa_spinlock);
+        g_ppa_busy = false;
+        portEXIT_CRITICAL(&ppa_spinlock);
+        g_has_camera_frame = true;
+        return;
+    }
 
     int64_t t_start = esp_timer_get_time();
     uint8_t *out_buf = camera_buf;
 #if SOC_PPA_SUPPORTED
     int64_t t_ppa_start = esp_timer_get_time();
     if (ppa_srm_handle) {
-        g_ppa_busy = true;
-        esp_err_t ret = app_image_process(camera_buf, camera_buf_hes, camera_buf_ves, cam_buff[g_ppa_write_idx]);
+        portENTER_CRITICAL(&ppa_spinlock);
+        g_ppa_submit_cnt++;
+        portEXIT_CRITICAL(&ppa_spinlock);
+
+        esp_err_t ret = app_image_process(camera_buf, camera_buf_hes, camera_buf_ves, cam_buff[write_idx]);
         if (ret != ESP_OK) {
+            portENTER_CRITICAL(&ppa_spinlock);
             g_ppa_busy = false;
+            portEXIT_CRITICAL(&ppa_spinlock);
             ESP_LOGW(TAG, "PPA frame process failed: %s", esp_err_to_name(ret));
+            g_has_camera_frame = true;
             return;
         }
-        out_buf = cam_buff[g_ppa_write_idx];
+        out_buf = cam_buff[write_idx];
     }
     int64_t t_ppa_end = esp_timer_get_time();
 #endif
 
-    // PPA 非阻塞：实际显示由 display_refresh_task 在 done_cb 后更新
+    // PPA BLOCKING 完成后，由 done_cb 更新 read_idx 和 busy 标志
     int64_t t_lvgl_start = esp_timer_get_time();
     int64_t t_lvgl_end = esp_timer_get_time();
     int64_t t_total = esp_timer_get_time() - t_start;
