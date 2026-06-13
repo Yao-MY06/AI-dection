@@ -60,13 +60,17 @@
 /* ========================================================================== */
 #define SCREEN_W 1024                           // 屏幕总宽度
 #define SCREEN_H 600                            // 屏幕总高度
-#define HEADER_H 0                              // 顶部标题栏已移除
-#define PANEL_W  180                            // 右侧控制面板宽度
-#define SOUND_H  160                            // 底部声学分析面板高度
+#define TOP_H    60                             // 顶部全局状态栏高度
+#define PANEL_W  300                            // 右侧操作面板宽度
+#define BOTTOM_H 140                            // 底部面板总高度
 
-// 动态计算摄像头画面的实际显示区域
-#define CAM_W    (SCREEN_W - PANEL_W)           // 摄像头区域宽度 (844)
-#define CAM_H    (SCREEN_H - HEADER_H - SOUND_H)// 摄像头区域高度 (440)
+// 动态计算各区域尺寸
+#define CAM_W    (SCREEN_W - PANEL_W)           // 主视频区宽度 (724)
+#define CAM_H    (SCREEN_H - TOP_H - BOTTOM_H)  // 主视频区高度 (400)
+#define ACOUSTIC_W CAM_W                        // 声纹分析区宽度
+#define ACOUSTIC_H BOTTOM_H                     // 声纹分析区高度
+#define ALARM_W  PANEL_W                        // 报警结果区宽度
+#define ALARM_H  BOTTOM_H                       // 报警结果区高度
 
 #define NUM_BUFS 2                              // 摄像头缓冲帧数
 #define ALIGN_UP(num, align) (((num) + ((align) - 1)) & ~((align) - 1)) // 内存对齐宏
@@ -120,30 +124,60 @@ static const char *TAG = "AI_INSPECTOR";
 static QueueHandle_t ui_event_queue = NULL;
 static QueueHandle_t hw_cmd_queue = NULL;
 
-static lv_obj_t *vision_det_lab = NULL;   // 视觉检测状态标签
-static lv_obj_t *vision_det_led = NULL;     // 视觉检测状态灯
-static lv_obj_t *audio_det_lab = NULL;      // 音频检测状态标签
-static lv_obj_t *audio_det_led = NULL;      // 音频检测状态灯
-static lv_obj_t *log_box = NULL;
-static lv_obj_t *camera_canvas = NULL;
-static lv_obj_t *p_lab = NULL;
-static lv_obj_t *f_lab = NULL;
-static lv_obj_t *y_lab = NULL;
+static lv_obj_t *camera_canvas = NULL;      // 主视频 Canvas
+static lv_obj_t *part_detect_box = NULL;      // 零件检测框（预留）
+static lv_obj_t *log_box = NULL;              // 日志输出框（保留在右下面板内）
 
-// 左上方 AI 状态栏句柄
-static lv_obj_t *ai_status_bar = NULL;
-static lv_obj_t *ai_status_led = NULL;
-static lv_obj_t *ai_status_lab = NULL;
-static lv_obj_t *sys_status_lab = NULL;
+// 顶部全局状态栏句柄
+static lv_obj_t *sys_status_lab = NULL;       // 系统状态
+static lv_obj_t *vision_status_lab = NULL;    // 视觉状态
+static lv_obj_t *audio_status_lab = NULL;     // 音频状态
+static lv_obj_t *emergency_status_lab = NULL; // 紧急状态
 
-// 零件检测框句柄（预留，等检测模型来了再绑定坐标）
-static lv_obj_t *part_detect_box = NULL;
+// 视频画面顶部中央半透明状态条句柄
+static lv_obj_t *ai_overlay_bar = NULL;
+static lv_obj_t *ai_overlay_lab = NULL;
 
-// 摄像头最新完成帧索引（由回调写入，AI 任务读取）
+// 右侧操作面板按钮句柄（用于互斥禁用）
+static lv_obj_t *b_vision_start = NULL;
+static lv_obj_t *b_vision_stop = NULL;
+static lv_obj_t *b_audio_start = NULL;
+static lv_obj_t *b_audio_stop = NULL;
+static lv_obj_t *b_emergency = NULL;
+static lv_obj_t *b_capture = NULL;
+
+// 底部声纹分析区句柄
+static lv_obj_t *acoustic_chart = NULL;
+static lv_chart_series_t *acoustic_chart_ser = NULL;
+static lv_obj_t *acoustic_result_lab = NULL;     // 大状态文字
+static lv_obj_t *acoustic_result_sub = NULL;     // 小状态说明
+
+// 右下角报警与 AI 结果卡片句柄
+static lv_obj_t *alarm_card = NULL;
+static lv_obj_t *alarm_label = NULL;
+static lv_obj_t *ai_result_card = NULL;
+static lv_obj_t *ai_ng_bar = NULL;          // NG 进度条背景
+static lv_obj_t *ai_ng_fill = NULL;         // NG 进度条填充
+static lv_obj_t *ai_ok_bar = NULL;          // OK 进度条背景
+static lv_obj_t *ai_ok_fill = NULL;         // OK 进度条填充
+static lv_obj_t *ai_ng_label = NULL;
+static lv_obj_t *ai_ok_label = NULL;
+
+// 保留旧命名兼容（新布局中仍使用这些变量名，但指向新的 UI 对象）
+static lv_obj_t *ai_status_bar = NULL;    // 兼容：实际指向视频顶部半透明状态条
+static lv_obj_t *ai_status_lab = NULL;    // 兼容：实际指向视频顶部状态文字
+static lv_obj_t *p_lab = NULL;            // 兼容：指向顶部 PASS 小卡片
+static lv_obj_t *f_lab = NULL;            // 兼容：指向顶部 FAIL 小卡片
+static lv_obj_t *y_lab = NULL;            // 兼容：指向顶部 YIELD 小卡片
+
+// PPA 输出双缓冲索引（PPA 写 write_idx，LVGL/AI 读 read_idx）
 #define CAM_BUF_IDX_NONE 0xFF
-static volatile uint8_t g_latest_cam_buf_idx = CAM_BUF_IDX_NONE;
+static volatile uint8_t g_ppa_write_idx = 0;
+static volatile uint8_t g_ppa_read_idx = CAM_BUF_IDX_NONE;
 static volatile uint8_t g_ai_reading_cam_buf_idx = CAM_BUF_IDX_NONE;
 static volatile bool g_has_camera_frame = false;
+static portMUX_TYPE cam_buf_spinlock = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool g_ppa_busy = false;
 
 // === 麦克风 FFT 配置 ===
 #define I2S_SCK_IO  ((gpio_num_t)21)
@@ -165,17 +199,13 @@ static volatile float g_bg_noise = 0.0f;
 static volatile int   g_health_score = 0;
 static volatile int   g_hit_pulse = 0;
 
-// 声学面板 UI 句柄
-static lv_obj_t *acoustic_chart = NULL;
-static lv_chart_series_t *acoustic_chart_ser = NULL;
-static lv_obj_t *acoustic_result_lab = NULL;
-static lv_obj_t *acoustic_result_sub = NULL;
-
 static vision_state_t g_vision_state = VISION_STATE_STOPPED;
 static audio_state_t g_audio_state = AUDIO_STATE_STOPPED;
 static bool g_emergency_active = false;
 static uint32_t count_pass = 0;
 static uint32_t count_fail = 0;
+static float g_ai_ng_pct = 0.0f;            // 最新 AI NG 概率
+static float g_ai_ok_pct = 0.0f;            // 最新 AI OK 概率
 
 static uint8_t *cam_buff[NUM_BUFS];
 static uint32_t cam_buff_size = 0;
@@ -194,146 +224,248 @@ static const char *MOUNT_POINT = "/sdcard";
 /* ========================================================================== */
 /* LVGL 动画与基础回调                                                         */
 /* ========================================================================== */
-static void anim_led_cb(void * var, int32_t v) {
-    lv_led_set_brightness((lv_obj_t *)var, (uint8_t)v);
-}
 static void anim_opa_cb(void * var, int32_t v) {
     lv_obj_set_style_opa((lv_obj_t *)var, v, 0);
 }
 
 /* ========================================================================== */
-/* 视觉检测状态更新                                                            */
+/* 视觉检测状态更新（顶部状态栏：图标+文字）                                     */
 /* ========================================================================== */
 static void update_vision_status(vision_state_t new_state) {
     g_vision_state = new_state;
-    if (!vision_det_lab || !vision_det_led) return;
+    if (!vision_status_lab) return;
 
-    lv_anim_delete(vision_det_lab, (lv_anim_exec_xcb_t)anim_opa_cb);
-    lv_anim_delete(vision_det_led, (lv_anim_exec_xcb_t)anim_led_cb);
+    lv_anim_delete(vision_status_lab, (lv_anim_exec_xcb_t)anim_opa_cb);
 
     switch (new_state) {
         case VISION_STATE_RUNNING:
-            lv_label_set_text(vision_det_lab, "VISION: DETECTING");
-            lv_obj_set_style_text_color(vision_det_lab, lv_color_hex(0xFFAA00), 0);
-            lv_led_set_color(vision_det_led, lv_color_hex(0xFFAA00));
-            lv_led_on(vision_det_led);
-            
-            lv_anim_t a;
-            lv_anim_init(&a);
-            lv_anim_set_var(&a, vision_det_led);
-            lv_anim_set_values(&a, 50, 255);
-            lv_anim_set_duration(&a, 800);
-            lv_anim_set_playback_duration(&a, 800);
-            lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-            lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_led_cb);
-            lv_anim_start(&a);
-
-            lv_anim_set_var(&a, vision_det_lab);
-            lv_anim_set_values(&a, LV_OPA_40, LV_OPA_COVER);
-            lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_opa_cb);
-            lv_anim_start(&a);
+            lv_label_set_text(vision_status_lab, LV_SYMBOL_VIDEO " VISION: RUNNING");
+            lv_obj_set_style_text_color(vision_status_lab, lv_palette_main(LV_PALETTE_GREEN), 0);
+            {
+                lv_anim_t a;
+                lv_anim_init(&a);
+                lv_anim_set_var(&a, vision_status_lab);
+                lv_anim_set_values(&a, LV_OPA_50, LV_OPA_COVER);
+                lv_anim_set_duration(&a, 800);
+                lv_anim_set_playback_duration(&a, 800);
+                lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+                lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_opa_cb);
+                lv_anim_start(&a);
+            }
             break;
 
         case VISION_STATE_STOPPED:
-            lv_label_set_text(vision_det_lab, "VISION: IDLE");
-            lv_obj_set_style_text_color(vision_det_lab, lv_palette_main(LV_PALETTE_GREY), 0);
-            lv_led_set_color(vision_det_led, lv_palette_main(LV_PALETTE_GREY));
-            lv_led_on(vision_det_led);
-            lv_obj_set_style_opa(vision_det_lab, LV_OPA_COVER, 0);
+            lv_label_set_text(vision_status_lab, LV_SYMBOL_VIDEO " VISION: IDLE");
+            lv_obj_set_style_text_color(vision_status_lab, lv_palette_main(LV_PALETTE_GREY), 0);
+            lv_obj_set_style_opa(vision_status_lab, LV_OPA_COVER, 0);
             break;
 
         case VISION_STATE_EMERGENCY:
-            lv_label_set_text(vision_det_lab, "VISION: HALTED!");
-            lv_obj_set_style_text_color(vision_det_lab, lv_palette_main(LV_PALETTE_RED), 0);
-            lv_led_set_color(vision_det_led, lv_palette_main(LV_PALETTE_RED));
-            lv_led_on(vision_det_led);
+            lv_label_set_text(vision_status_lab, LV_SYMBOL_VIDEO " VISION: HALTED!");
+            lv_obj_set_style_text_color(vision_status_lab, lv_palette_main(LV_PALETTE_RED), 0);
+            lv_obj_set_style_opa(vision_status_lab, LV_OPA_COVER, 0);
             break;
     }
 }
 
 /* ========================================================================== */
-/* 音频检测状态更新                                                            */
+/* 音频检测状态更新（顶部状态栏：图标+文字）                                     */
 /* ========================================================================== */
 static void update_audio_status(audio_state_t new_state) {
     g_audio_state = new_state;
-    if (!audio_det_lab || !audio_det_led) return;
+    if (!audio_status_lab) return;
 
-    lv_anim_delete(audio_det_lab, (lv_anim_exec_xcb_t)anim_opa_cb);
-    lv_anim_delete(audio_det_led, (lv_anim_exec_xcb_t)anim_led_cb);
+    lv_anim_delete(audio_status_lab, (lv_anim_exec_xcb_t)anim_opa_cb);
 
     switch (new_state) {
         case AUDIO_STATE_RUNNING:
-            lv_label_set_text(audio_det_lab, "AUDIO: LISTENING");
-            lv_obj_set_style_text_color(audio_det_lab, lv_color_hex(0x00D2FF), 0);
-            lv_led_set_color(audio_det_led, lv_color_hex(0x00D2FF));
-            lv_led_on(audio_det_led);
-            
-            lv_anim_t a;
-            lv_anim_init(&a);
-            lv_anim_set_var(&a, audio_det_led);
-            lv_anim_set_values(&a, 50, 255);
-            lv_anim_set_duration(&a, 800);
-            lv_anim_set_playback_duration(&a, 800);
-            lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-            lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_led_cb);
-            lv_anim_start(&a);
-
-            lv_anim_set_var(&a, audio_det_lab);
-            lv_anim_set_values(&a, LV_OPA_40, LV_OPA_COVER);
-            lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_opa_cb);
-            lv_anim_start(&a);
+            lv_label_set_text(audio_status_lab, LV_SYMBOL_AUDIO " AUDIO: LISTENING");
+            lv_obj_set_style_text_color(audio_status_lab, lv_color_hex(0x00D2FF), 0);
+            {
+                lv_anim_t a;
+                lv_anim_init(&a);
+                lv_anim_set_var(&a, audio_status_lab);
+                lv_anim_set_values(&a, LV_OPA_50, LV_OPA_COVER);
+                lv_anim_set_duration(&a, 800);
+                lv_anim_set_playback_duration(&a, 800);
+                lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+                lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_opa_cb);
+                lv_anim_start(&a);
+            }
             break;
 
         case AUDIO_STATE_STOPPED:
-            lv_label_set_text(audio_det_lab, "AUDIO: IDLE");
-            lv_obj_set_style_text_color(audio_det_lab, lv_palette_main(LV_PALETTE_GREY), 0);
-            lv_led_set_color(audio_det_led, lv_palette_main(LV_PALETTE_GREY));
-            lv_led_on(audio_det_led);
-            lv_obj_set_style_opa(audio_det_lab, LV_OPA_COVER, 0);
+            lv_label_set_text(audio_status_lab, LV_SYMBOL_AUDIO " AUDIO: STOPPED");
+            lv_obj_set_style_text_color(audio_status_lab, lv_palette_main(LV_PALETTE_GREY), 0);
+            lv_obj_set_style_opa(audio_status_lab, LV_OPA_COVER, 0);
             break;
 
         case AUDIO_STATE_EMERGENCY:
-            lv_label_set_text(audio_det_lab, "AUDIO: HALTED!");
-            lv_obj_set_style_text_color(audio_det_lab, lv_palette_main(LV_PALETTE_RED), 0);
-            lv_led_set_color(audio_det_led, lv_palette_main(LV_PALETTE_RED));
-            lv_led_on(audio_det_led);
+            lv_label_set_text(audio_status_lab, LV_SYMBOL_AUDIO " AUDIO: HALTED!");
+            lv_obj_set_style_text_color(audio_status_lab, lv_palette_main(LV_PALETTE_RED), 0);
+            lv_obj_set_style_opa(audio_status_lab, LV_OPA_COVER, 0);
             break;
     }
 }
 
 /* ========================================================================== */
-/* 左上方 AI 状态栏更新                                                        */
+/* 视频画面顶部中央 AI 状态条更新                                               */
+/* 状态：IDLE / DETECTING / NG DETECTED / OK                                   */
 /* ========================================================================== */
-static void update_ai_status_bar(bool is_detecting) {
-    if (!ai_status_led || !ai_status_lab) return;
-    
-    if (is_detecting) {
-        lv_label_set_text(ai_status_lab, "AI DETECTING");
-        lv_obj_set_style_text_color(ai_status_lab, lv_color_hex(0x00FF88), 0);
-        lv_led_set_color(ai_status_led, lv_color_hex(0x00FF88));
-        lv_led_on(ai_status_led);
-    } else {
-        lv_label_set_text(ai_status_lab, "AI IDLE");
-        lv_obj_set_style_text_color(ai_status_lab, lv_color_hex(0x888888), 0);
-        lv_led_set_color(ai_status_led, lv_color_hex(0x888888));
-        lv_led_on(ai_status_led);
+typedef enum {
+    AI_OVERLAY_IDLE = 0,
+    AI_OVERLAY_DETECTING,
+    AI_OVERLAY_NG,
+    AI_OVERLAY_OK
+} ai_overlay_state_t;
+
+static void update_ai_status_bar(ai_overlay_state_t state) {
+    if (!ai_overlay_bar || !ai_overlay_lab) return;
+
+    switch (state) {
+        case AI_OVERLAY_DETECTING:
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_REFRESH " AI: DETECTING");
+            lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0x00D2FF), 0);
+            lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x000000), 0);
+            break;
+        case AI_OVERLAY_NG:
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_CLOSE " AI: NG DETECTED");
+            lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0xFF3333), 0);
+            lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x330000), 0);
+            break;
+        case AI_OVERLAY_OK:
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_OK " AI: OK");
+            lv_obj_set_style_text_color(ai_overlay_lab, lv_palette_main(LV_PALETTE_GREEN), 0);
+            lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x003300), 0);
+            break;
+        case AI_OVERLAY_IDLE:
+        default:
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_MINUS " AI: IDLE");
+            lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0x888888), 0);
+            lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x000000), 0);
+            break;
     }
 }
 
+static void update_ai_status_bar_bool(bool is_detecting) {
+    update_ai_status_bar(is_detecting ? AI_OVERLAY_DETECTING : AI_OVERLAY_IDLE);
+}
+
 /* ========================================================================== */
-/* 系统整体状态更新                                                            */
+/* 系统整体状态更新（顶部状态栏系统状态卡片）                                   */
 /* ========================================================================== */
 static void update_system_status(bool emergency) {
     g_emergency_active = emergency;
     if (!sys_status_lab) return;
-    
+
+    lv_anim_delete(sys_status_lab, (lv_anim_exec_xcb_t)anim_opa_cb);
+
     if (emergency) {
-        lv_label_set_text(sys_status_lab, "SYSTEM ERR");
-        lv_obj_set_style_text_color(sys_status_lab, lv_palette_main(LV_PALETTE_RED), 0);
-        lv_textarea_add_text(log_box, "\n[ALARM] E-STOP ACTIVE");
+        lv_label_set_text(sys_status_lab, LV_SYMBOL_WARNING " SYSTEM ERROR");
+        lv_obj_set_style_text_color(sys_status_lab, lv_color_white(), 0);
+        lv_obj_set_style_bg_color(sys_status_lab, lv_palette_main(LV_PALETTE_RED), 0);
+        lv_obj_set_style_bg_opa(sys_status_lab, LV_OPA_COVER, 0);
+        // 错误状态：红底白字+闪烁
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, sys_status_lab);
+        lv_anim_set_values(&a, LV_OPA_60, LV_OPA_COVER);
+        lv_anim_set_duration(&a, 400);
+        lv_anim_set_playback_duration(&a, 400);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_opa_cb);
+        lv_anim_start(&a);
+        if (alarm_label) lv_label_set_text(alarm_label, "[ALARM] E-STOP ACTIVE");
+        if (alarm_card) {
+            lv_obj_set_style_bg_color(alarm_card, lv_palette_main(LV_PALETTE_RED), 0);
+            lv_obj_set_style_bg_opa(alarm_card, LV_OPA_COVER, 0);
+        }
+        if (log_box) lv_textarea_add_text(log_box, "\n[ALARM] E-STOP ACTIVE");
     } else {
-        lv_label_set_text(sys_status_lab, "SYSTEM OK");
-        lv_obj_set_style_text_color(sys_status_lab, lv_palette_main(LV_PALETTE_GREEN), 0);
+        lv_label_set_text(sys_status_lab, LV_SYMBOL_OK " SYSTEM NORMAL");
+        lv_obj_set_style_text_color(sys_status_lab, lv_color_black(), 0);
+        lv_obj_set_style_bg_color(sys_status_lab, lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(sys_status_lab, LV_OPA_COVER, 0);
+        lv_obj_set_style_opa(sys_status_lab, LV_OPA_COVER, 0);
+        if (alarm_label) lv_label_set_text(alarm_label, "NO ALARM");
+        if (alarm_card) {
+            lv_obj_set_style_bg_color(alarm_card, lv_color_hex(0x2A2A30), 0);
+            lv_obj_set_style_bg_opa(alarm_card, LV_OPA_COVER, 0);
+        }
+    }
+}
+
+/* ========================================================================== */
+/* 顶部状态栏紧急状态更新                                                       */
+/* ========================================================================== */
+static void update_emergency_status(bool active) {
+    if (!emergency_status_lab) return;
+    lv_anim_delete(emergency_status_lab, (lv_anim_exec_xcb_t)anim_opa_cb);
+
+    if (active) {
+        lv_label_set_text(emergency_status_lab, LV_SYMBOL_STOP " E-STOP: ACTIVE");
+        lv_obj_set_style_text_color(emergency_status_lab, lv_color_white(), 0);
+        lv_obj_set_style_bg_color(emergency_status_lab, lv_palette_main(LV_PALETTE_RED), 0);
+        lv_obj_set_style_bg_opa(emergency_status_lab, LV_OPA_COVER, 0);
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, emergency_status_lab);
+        lv_anim_set_values(&a, LV_OPA_50, LV_OPA_COVER);
+        lv_anim_set_duration(&a, 400);
+        lv_anim_set_playback_duration(&a, 400);
+        lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_exec_cb(&a, (lv_anim_exec_xcb_t)anim_opa_cb);
+        lv_anim_start(&a);
+    } else {
+        lv_label_set_text(emergency_status_lab, LV_SYMBOL_STOP " E-STOP: INACTIVE");
+        lv_obj_set_style_text_color(emergency_status_lab, lv_color_black(), 0);
+        lv_obj_set_style_bg_color(emergency_status_lab, lv_palette_main(LV_PALETTE_GREY), 0);
+        lv_obj_set_style_bg_opa(emergency_status_lab, LV_OPA_COVER, 0);
+        lv_obj_set_style_opa(emergency_status_lab, LV_OPA_COVER, 0);
+    }
+}
+
+/* ========================================================================== */
+/* 右下角 AI 检测结果卡片更新（带进度条）                                        */
+/* ========================================================================== */
+static void update_ai_result_card(float ng_pct, float ok_pct) {
+    if (ai_ng_fill) {
+        int32_t ng_w = (int32_t)((ALARM_W - 46) * ng_pct / 100.0f);
+        if (ng_w < 0) ng_w = 0;
+        if (ng_w > ALARM_W - 46) ng_w = ALARM_W - 46;
+        lv_obj_set_width(ai_ng_fill, ng_w);
+    }
+    if (ai_ok_fill) {
+        int32_t ok_w = (int32_t)((ALARM_W - 46) * ok_pct / 100.0f);
+        if (ok_w < 0) ok_w = 0;
+        if (ok_w > ALARM_W - 46) ok_w = ALARM_W - 46;
+        lv_obj_set_width(ai_ok_fill, ok_w);
+    }
+    if (ai_ng_label) {
+        lv_label_set_text_fmt(ai_ng_label, "AI NG: %.1f%%", ng_pct);
+    }
+    if (ai_ok_label) {
+        lv_label_set_text_fmt(ai_ok_label, "AI OK: %.1f%%", ok_pct);
+    }
+    // 同步更新视频画面状态条
+    if (ng_pct > 60.0f) {
+        update_ai_status_bar(AI_OVERLAY_NG);
+    } else if (ok_pct > 60.0f) {
+        update_ai_status_bar(AI_OVERLAY_OK);
+    }
+}
+
+/* ========================================================================== */
+/* 更新良率与顶部统计卡片                                                       */
+/* ========================================================================== */
+static void update_yield_stats(void) {
+    if (p_lab) lv_label_set_text_fmt(p_lab, "PASS\n%lu", (unsigned long)count_pass);
+    if (f_lab) lv_label_set_text_fmt(f_lab, "FAIL\n%lu", (unsigned long)count_fail);
+    if (count_pass + count_fail > 0) {
+        float yield = (float)count_pass / (count_pass + count_fail) * 100.0f;
+        if (y_lab) lv_label_set_text_fmt(y_lab, "YIELD\n%.2f%%", yield);
+    } else {
+        if (y_lab) lv_label_set_text_fmt(y_lab, "YIELD\n%.2f%%", 0.0f);
     }
 }
 
@@ -373,7 +505,7 @@ void ui_event_task(void *pvParameters)
             
             // 处理拍照请求（内存拷贝在锁外完成）
             if (ev.type == CMD_BTN_CAPTURE) {
-                uint8_t buf_idx = g_latest_cam_buf_idx;
+                uint8_t buf_idx = g_ppa_read_idx;
                 if (buf_idx >= NUM_BUFS || cam_buff[buf_idx] == nullptr) {
                     snprintf(ev.log_msg, sizeof(ev.log_msg), "\n[ERR] No camera frame yet!");
                 } else {
@@ -399,34 +531,52 @@ void ui_event_task(void *pvParameters)
                 switch (ev.type) {
                     case CMD_VISION_START:
                         update_vision_status(VISION_STATE_RUNNING);
-                        update_ai_status_bar(true);
+                        update_ai_status_bar_bool(true);
+                        if (b_vision_start) lv_obj_add_state(b_vision_start, LV_STATE_DISABLED);
+                        if (b_vision_stop)  lv_obj_clear_state(b_vision_stop, LV_STATE_DISABLED);
+                        if (b_audio_start) lv_obj_clear_state(b_audio_start, LV_STATE_DISABLED);
                         break;
                     case CMD_VISION_STOP:
                         update_vision_status(VISION_STATE_STOPPED);
-                        update_ai_status_bar(false);
+                        update_ai_status_bar_bool(false);
+                        if (b_vision_start) lv_obj_clear_state(b_vision_start, LV_STATE_DISABLED);
+                        if (b_vision_stop)  lv_obj_add_state(b_vision_stop, LV_STATE_DISABLED);
                         break;
                     case CMD_AUDIO_START:
                         update_audio_status(AUDIO_STATE_RUNNING);
+                        if (b_audio_start) lv_obj_add_state(b_audio_start, LV_STATE_DISABLED);
+                        if (b_audio_stop)  lv_obj_clear_state(b_audio_stop, LV_STATE_DISABLED);
                         break;
                     case CMD_AUDIO_STOP:
                         update_audio_status(AUDIO_STATE_STOPPED);
+                        if (b_audio_start) lv_obj_clear_state(b_audio_start, LV_STATE_DISABLED);
+                        if (b_audio_stop)  lv_obj_add_state(b_audio_stop, LV_STATE_DISABLED);
                         break;
                     case CMD_BTN_EMERGENCY:
                         update_vision_status(VISION_STATE_EMERGENCY);
                         update_audio_status(AUDIO_STATE_EMERGENCY);
                         update_system_status(true);
-                        update_ai_status_bar(false);
+                        update_ai_status_bar_bool(false);
+                        // 禁用所有按钮，仅保留视觉反馈
+                        if (b_vision_start) lv_obj_add_state(b_vision_start, LV_STATE_DISABLED);
+                        if (b_vision_stop)  lv_obj_add_state(b_vision_stop, LV_STATE_DISABLED);
+                        if (b_audio_start)  lv_obj_add_state(b_audio_start, LV_STATE_DISABLED);
+                        if (b_audio_stop)   lv_obj_add_state(b_audio_stop, LV_STATE_DISABLED);
+                        if (b_emergency)    lv_obj_add_state(b_emergency, LV_STATE_DISABLED);
+                        if (b_capture)      lv_obj_add_state(b_capture, LV_STATE_DISABLED);
                         break;
                     case CMD_BTN_CAPTURE:
                         lv_textarea_add_text(log_box, ev.log_msg);
                         break;
                     case EVENT_AI_PASS:
                         count_pass++;
-                        lv_label_set_text_fmt(p_lab, "PASS: %lu", (unsigned long)count_pass);
+                        update_yield_stats();
+                        update_ai_result_card(g_ai_ng_pct, g_ai_ok_pct);
                         break;
                     case EVENT_AI_DEFECT_FOUND:
                         count_fail++;
-                        lv_label_set_text_fmt(f_lab, "FAIL: %lu", (unsigned long)count_fail);
+                        update_yield_stats();
+                        update_ai_result_card(g_ai_ng_pct, g_ai_ok_pct);
                         lv_textarea_add_text(log_box, ev.log_msg);
                         break;
                     case CMD_BTN_CAPTURE_DONE:
@@ -439,10 +589,7 @@ void ui_event_task(void *pvParameters)
                 }
 
                 // 更新良率（需要访问 LVGL 对象，必须在锁内）
-                if (count_pass + count_fail > 0) {
-                    float yield = (float)count_pass / (count_pass + count_fail) * 100.0f;
-                    lv_label_set_text_fmt(y_lab, "YIELD: %.2f%%", yield);
-                }
+                update_yield_stats();
 
                 bsp_display_unlock();   // ✅ 在这里解锁，与上面的 lock 配对
             }
@@ -505,15 +652,19 @@ void ai_vision_task(void *pvParameters) {
                     input_tensor->get_dtype() == dl::DATA_TYPE_FLOAT ? "FLOAT" : "OTHER");
             }
 
-            uint8_t buf_idx = g_latest_cam_buf_idx;
+            uint8_t buf_idx = g_ppa_read_idx;
             if (buf_idx >= NUM_BUFS || cam_buff[buf_idx] == nullptr) {
                 vTaskDelay(pdMS_TO_TICKS(20));
                 continue;
             }
 
             bool is_float_input = (input_tensor->get_dtype() == dl::DATA_TYPE_FLOAT);
+            portENTER_CRITICAL(&cam_buf_spinlock);
             g_ai_reading_cam_buf_idx = buf_idx;
+            portEXIT_CRITICAL(&cam_buf_spinlock);
             uint16_t *src = (uint16_t *)cam_buff[buf_idx];
+
+            int64_t t_preprocess_start = esp_timer_get_time();
             
             if (is_float_input) {
                 float *dst_f = (float *)input_tensor->get_element_ptr();
@@ -545,8 +696,23 @@ void ai_vision_task(void *pvParameters) {
                 }
             }
 
+            portENTER_CRITICAL(&cam_buf_spinlock);
             g_ai_reading_cam_buf_idx = CAM_BUF_IDX_NONE;
+            portEXIT_CRITICAL(&cam_buf_spinlock);
+            int64_t t_preprocess_end = esp_timer_get_time();
+
+            int64_t t_infer_start = esp_timer_get_time();
             yolo_model->run(s_input_map);
+            int64_t t_infer_end = esp_timer_get_time();
+
+            static int ai_run_cnt = 0;
+            ai_run_cnt++;
+            if (ai_run_cnt % 10 == 0) {
+                ESP_LOGI(TAG, "[AI] preprocess=%lldus inference=%lldus total=%lldus",
+                         (t_preprocess_end - t_preprocess_start),
+                         (t_infer_end - t_infer_start),
+                         (t_infer_end - t_preprocess_start));
+            }
 
             auto &outputs = yolo_model->get_outputs();
             if (!outputs.empty()) {
@@ -566,19 +732,24 @@ void ai_vision_task(void *pvParameters) {
                     ESP_LOGI(TAG, "AI: normal=%.3f scratch=%.3f", prob_normal, prob_scratch);
 
                     system_event_t ev = {};
+                    g_ai_ng_pct = prob_scratch * 100.0f;
+                    g_ai_ok_pct = prob_normal * 100.0f;
                     if (prob_scratch > 0.60f) {
                         ev.type = EVENT_AI_DEFECT_FOUND;
                         snprintf(ev.log_msg, sizeof(ev.log_msg),
                                  "\n[AI] NG=%.1f%% OK=%.1f%% → FAIL", 
-                                 prob_scratch * 100, prob_normal * 100);
+                                 g_ai_ng_pct, g_ai_ok_pct);
                         xQueueSend(hw_cmd_queue, &ev, 0);
                     } else {
                         ev.type = EVENT_AI_PASS;
+                        snprintf(ev.log_msg, sizeof(ev.log_msg),
+                                 "\n[AI] NG=%.1f%% OK=%.1f%% → PASS",
+                                 g_ai_ng_pct, g_ai_ok_pct);
                     }
                     xQueueSend(ui_event_queue, &ev, 0);
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(200));
         } else {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
@@ -708,6 +879,7 @@ void mic_fft_task(void *pvParameters) {
                 buffer_idx++;
 
                 if (buffer_idx >= N_SAMPLES) {
+                    int64_t t_fft_start = esp_timer_get_time();
                     for (int k = 0; k < N_SAMPLES; k++) {
                         fft_y_cf[k * 2 + 0] = audio_buffer[k] * fft_window[k];
                         fft_y_cf[k * 2 + 1] = 0;
@@ -817,34 +989,39 @@ void mic_fft_task(void *pvParameters) {
                         printf(">PSRAM:%u/%uKB (free/total)\n",
                                (unsigned)(psram_free / 1024), (unsigned)(psram_total / 1024));
                         print_throttle = 0;
+                        int64_t t_fft_end = esp_timer_get_time();
+                        printf(">FFT_UI:%lldus\n", (t_fft_end - t_fft_start));
 
                         if (acoustic_chart && acoustic_chart_ser && acoustic_result_lab) {
                             
                             // 【关键修复】：只有成功获取到锁，才进行 UI 操作！
-                            if (bsp_display_lock(0)) {
+                            if (bsp_display_lock(pdMS_TO_TICKS(5))) {
                                 
                                 // 更新 Health Score 波形图
                                 lv_chart_set_next_value(acoustic_chart, acoustic_chart_ser, (int32_t)health_score);
                                 lv_chart_refresh(acoustic_chart);
 
-                                // PASS/FAIL 判定
+                                // 声纹状态判定（文字 + 波形颜色）
                                 if (hit_pulse > 0) {
                                     if (health_score > 50.0f && health_score < 320.0f) {
-                                        lv_label_set_text(acoustic_result_lab, "PASS");
+                                        lv_label_set_text(acoustic_result_lab, "SIGNAL OK");
                                         lv_obj_set_style_text_color(acoustic_result_lab, lv_palette_main(LV_PALETTE_GREEN), 0);
-                                        lv_label_set_text(acoustic_result_sub, "ACOUSTIC OK");
+                                        lv_label_set_text(acoustic_result_sub, "ACOUSTIC NORMAL");
                                         lv_obj_set_style_text_color(acoustic_result_sub, lv_palette_main(LV_PALETTE_GREEN), 0);
+                                        lv_obj_set_style_line_color(acoustic_chart, lv_palette_main(LV_PALETTE_GREEN), LV_PART_ITEMS);
                                     } else {
-                                        lv_label_set_text(acoustic_result_lab, "FAIL");
+                                        lv_label_set_text(acoustic_result_lab, "SIGNAL NG");
                                         lv_obj_set_style_text_color(acoustic_result_lab, lv_palette_main(LV_PALETTE_RED), 0);
-                                        lv_label_set_text(acoustic_result_sub, "ABNORMAL");
+                                        lv_label_set_text(acoustic_result_sub, "ABNORMAL SOUND");
                                         lv_obj_set_style_text_color(acoustic_result_sub, lv_palette_main(LV_PALETTE_RED), 0);
+                                        lv_obj_set_style_line_color(acoustic_chart, lv_palette_main(LV_PALETTE_RED), LV_PART_ITEMS);
                                     }
                                 } else if (band_total < bg_noise * 1.5f) {
-                                    lv_label_set_text(acoustic_result_lab, "WAIT");
+                                    lv_label_set_text(acoustic_result_lab, "WAIT NO HIT");
                                     lv_obj_set_style_text_color(acoustic_result_lab, lv_color_hex(0x888888), 0);
-                                    lv_label_set_text(acoustic_result_sub, "NO HIT");
+                                    lv_label_set_text(acoustic_result_sub, "MONITORING");
                                     lv_obj_set_style_text_color(acoustic_result_sub, lv_color_hex(0x888888), 0);
+                                    lv_obj_set_style_line_color(acoustic_chart, lv_palette_main(LV_PALETTE_GREEN), LV_PART_ITEMS);
                                 }
 
                                 // 【关键修复】：解锁必须放在 if(bsp_display_lock) 的内部！
@@ -960,17 +1137,41 @@ void sd_writer_task(void *pvParameters) {
 /* PPA 硬件图像处理 (给屏幕用的，完全保留 v2.txt 的正确逻辑)                      */
 /* ========================================================================== */
 #if SOC_PPA_SUPPORTED
+static bool app_ppa_done_cb(ppa_client_handle_t ppa_client, ppa_event_data_t *event_data, void *user_data)
+{
+    // PPA 完成后，更新可读 buffer 索引，并交换写索引
+    g_ppa_read_idx = g_ppa_write_idx;
+    g_ppa_write_idx = (g_ppa_write_idx + 1) % NUM_BUFS;
+    g_ppa_busy = false;
+    g_has_camera_frame = true;
+    return false;
+}
+
 static void app_ppa_init(void) {
     ppa_client_config_t cfg = {};
     cfg.oper_type = PPA_OPERATION_SRM;
     ppa_register_client(&cfg, &ppa_srm_handle);
+
+    ppa_event_callbacks_t cbs = {
+        .on_trans_done = app_ppa_done_cb,
+    };
+    ppa_client_register_event_callbacks(ppa_srm_handle, &cbs);
 }
 
 static esp_err_t app_image_process(uint8_t *in_buf, uint32_t in_w, uint32_t in_h, uint8_t *out_buf) {
-    uint32_t crop_w = CAM_W * 2; 
-    uint32_t crop_h = CAM_H * 2; 
-    if (crop_w > in_w) crop_w = in_w;
-    if (crop_h > in_h) crop_h = in_h;
+    // 保持 CAM_W/CAM_H 的宽高比，从摄像头画面中居中裁剪，避免无意义的 *2 大裁剪块
+    uint32_t crop_w = in_w;
+    uint32_t crop_h = in_h;
+
+    // 计算保持显示区域宽高比的裁剪尺寸
+    uint32_t target_w = (uint32_t)((float)in_h * CAM_W / CAM_H);
+    uint32_t target_h = (uint32_t)((float)in_w * CAM_H / CAM_W);
+    if (target_w <= in_w) {
+        crop_w = target_w;
+    } else {
+        crop_h = target_h;
+    }
+
     crop_w &= ~1U;
     crop_h &= ~1U;
     if (crop_w == 0 || crop_h == 0) {
@@ -999,41 +1200,74 @@ static esp_err_t app_image_process(uint8_t *in_buf, uint32_t in_w, uint32_t in_h
     srm_config.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
     srm_config.scale_x = (float)CAM_W / (float)crop_w;
     srm_config.scale_y = (float)CAM_H / (float)crop_h;
-    srm_config.mode = PPA_TRANS_MODE_BLOCKING;
+    srm_config.mode = PPA_TRANS_MODE_NON_BLOCKING;
     
     return ppa_do_scale_rotate_mirror(ppa_srm_handle, &srm_config);
 }
 #endif
 
+static void display_refresh_task(void *pvParameters)
+{
+    uint8_t last_read_idx = CAM_BUF_IDX_NONE;
+    while (1) {
+        uint8_t read_idx = g_ppa_read_idx;
+        if (read_idx != last_read_idx && read_idx < NUM_BUFS && cam_buff[read_idx] != nullptr) {
+            last_read_idx = read_idx;
+            if (bsp_display_lock(pdMS_TO_TICKS(5))) {
+                if (camera_canvas) {
+                    lv_canvas_set_buffer(camera_canvas, cam_buff[read_idx], CAM_W, CAM_H, LV_COLOR_FORMAT_RGB565);
+                }
+                bsp_display_unlock();
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(33));  // 约 30fps 刷新
+    }
+}
+
 static void camera_video_frame_operation(uint8_t *camera_buf, uint8_t camera_buf_index, uint32_t camera_buf_hes,
                                         uint32_t camera_buf_ves, size_t camera_buf_len) {
     if (g_emergency_active) return;
-    if (camera_buf_index >= NUM_BUFS || cam_buff[camera_buf_index] == nullptr) return;
-    if (camera_buf_index == g_ai_reading_cam_buf_idx) return;
 
+    // 如果上一帧 PPA 还没完成，跳过本帧
+    if (g_ppa_busy) {
+        return;
+    }
+
+    // 如果 AI 正在读取目标 buffer，跳过本帧
+    portENTER_CRITICAL(&cam_buf_spinlock);
+    bool ai_reading = (g_ppa_write_idx == g_ai_reading_cam_buf_idx);
+    portEXIT_CRITICAL(&cam_buf_spinlock);
+    if (ai_reading) return;
+
+    int64_t t_start = esp_timer_get_time();
     uint8_t *out_buf = camera_buf;
 #if SOC_PPA_SUPPORTED
+    int64_t t_ppa_start = esp_timer_get_time();
     if (ppa_srm_handle) {
-        esp_err_t ret = app_image_process(camera_buf, camera_buf_hes, camera_buf_ves, cam_buff[camera_buf_index]);
+        g_ppa_busy = true;
+        esp_err_t ret = app_image_process(camera_buf, camera_buf_hes, camera_buf_ves, cam_buff[g_ppa_write_idx]);
         if (ret != ESP_OK) {
+            g_ppa_busy = false;
             ESP_LOGW(TAG, "PPA frame process failed: %s", esp_err_to_name(ret));
             return;
         }
-        out_buf = cam_buff[camera_buf_index];
+        out_buf = cam_buff[g_ppa_write_idx];
     }
+    int64_t t_ppa_end = esp_timer_get_time();
 #endif
 
-    // 更新最新完成帧索引，供 AI 任务读取（避免始终读 cam_buff[0] 导致旧帧/脏读）
-    g_latest_cam_buf_idx = camera_buf_index;
-    g_has_camera_frame = true;
+    // PPA 非阻塞：实际显示由 display_refresh_task 在 done_cb 后更新
+    int64_t t_lvgl_start = esp_timer_get_time();
+    int64_t t_lvgl_end = esp_timer_get_time();
+    int64_t t_total = esp_timer_get_time() - t_start;
 
-    if (bsp_display_lock(0)) {
-    if (camera_canvas) {
-        lv_canvas_set_buffer(camera_canvas, out_buf, CAM_W, CAM_H, LV_COLOR_FORMAT_RGB565);
-        lv_obj_invalidate(camera_canvas);
+    static int cam_frame_cnt = 0;
+    cam_frame_cnt++;
+    if (cam_frame_cnt % 60 == 0) {
+        ESP_LOGI(TAG, "[CAM] total=%lldus PPA_submit=%lldus",
+                 t_total,
+                 (t_ppa_end - t_ppa_start));
     }
-    bsp_display_unlock();
-}
 }
 
 
@@ -1111,179 +1345,213 @@ extern "C" void app_main(void) {
     }
 
     // ----------------------------------------------------------------------
-    // LVGL 工业面板 UI 搭建 
+    // LVGL 工业面板 UI 搭建（生产检测设备优化布局）
     // ----------------------------------------------------------------------
     bsp_display_lock(0);
     lv_obj_t *scr = lv_scr_act();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0A0A0C), 0); // 整体工业深底色
 
-    /* --- UI 区块 1：左侧视觉监测主屏 (Canvas) --- */
+    /* ===================================================================== */
+    /* 顶部全局状态栏                                                        */
+    /* ===================================================================== */
+    lv_obj_t *top_bar = lv_obj_create(scr);
+    lv_obj_set_size(top_bar, SCREEN_W, TOP_H);
+    lv_obj_align(top_bar, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(top_bar, lv_color_hex(0x141419), 0);
+    lv_obj_set_style_radius(top_bar, 0, 0);
+    lv_obj_set_style_border_width(top_bar, 0, 0);
+    lv_obj_set_style_pad_all(top_bar, 0, 0);
+
+    // 1) 系统状态
+    sys_status_lab = lv_label_create(top_bar);
+    lv_label_set_text(sys_status_lab, LV_SYMBOL_OK " SYSTEM NORMAL");
+    lv_obj_set_style_text_font(sys_status_lab, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(sys_status_lab, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(sys_status_lab, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(sys_status_lab, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(sys_status_lab, 6, 0);
+    lv_obj_set_style_pad_hor(sys_status_lab, 12, 0);
+    lv_obj_set_style_pad_ver(sys_status_lab, 8, 0);
+    lv_obj_align(sys_status_lab, LV_ALIGN_LEFT_MID, 10, 0);
+
+    // 2) 视觉状态
+    vision_status_lab = lv_label_create(top_bar);
+    lv_label_set_text(vision_status_lab, LV_SYMBOL_VIDEO " VISION: IDLE");
+    lv_obj_set_style_text_font(vision_status_lab, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(vision_status_lab, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_obj_align(vision_status_lab, LV_ALIGN_LEFT_MID, 300, 0);
+
+    // 3) 音频状态
+    audio_status_lab = lv_label_create(top_bar);
+    lv_label_set_text(audio_status_lab, LV_SYMBOL_AUDIO " AUDIO: STOPPED");
+    lv_obj_set_style_text_font(audio_status_lab, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(audio_status_lab, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_obj_align(audio_status_lab, LV_ALIGN_LEFT_MID, 540, 0);
+
+    // 4) 紧急状态
+    emergency_status_lab = lv_label_create(top_bar);
+    lv_label_set_text(emergency_status_lab, LV_SYMBOL_STOP " E-STOP: INACTIVE");
+    lv_obj_set_style_text_font(emergency_status_lab, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(emergency_status_lab, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(emergency_status_lab, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_obj_set_style_bg_opa(emergency_status_lab, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(emergency_status_lab, 6, 0);
+    lv_obj_set_style_pad_hor(emergency_status_lab, 12, 0);
+    lv_obj_set_style_pad_ver(emergency_status_lab, 8, 0);
+    lv_obj_align(emergency_status_lab, LV_ALIGN_RIGHT_MID, -10, 0);
+
+    /* ===================================================================== */
+    /* 左侧主视频画面区                                                      */
+    /* ===================================================================== */
     camera_canvas = lv_canvas_create(scr);
     lv_obj_set_size(camera_canvas, CAM_W, CAM_H);
     lv_canvas_set_buffer(camera_canvas, cam_buff[0], CAM_W, CAM_H, LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_pos(camera_canvas, 0, HEADER_H); 
+    lv_obj_set_pos(camera_canvas, 0, TOP_H);
     lv_obj_set_style_pad_all(camera_canvas, 0, 0);
     lv_obj_set_style_border_width(camera_canvas, 0, 0);
     lv_obj_set_style_bg_opa(camera_canvas, LV_OPA_TRANSP, 0);
 
-    // 左上方 AI 状态栏（半透明浮层）
-    ai_status_bar = lv_obj_create(scr);
-    lv_obj_set_size(ai_status_bar, 220, 28);
-    lv_obj_set_pos(ai_status_bar, 10, 10);
-    lv_obj_set_style_bg_color(ai_status_bar, lv_color_hex(0x0A0A0C), 0);
-    lv_obj_set_style_bg_opa(ai_status_bar, LV_OPA_70, 0);
-    lv_obj_set_style_radius(ai_status_bar, 4, 0);
-    lv_obj_set_style_border_width(ai_status_bar, 0, 0);
-    lv_obj_set_style_pad_all(ai_status_bar, 4, 0);
+    // 画面顶部中央半透明状态条
+    ai_overlay_bar = lv_obj_create(scr);
+    ai_status_bar = ai_overlay_bar; // 兼容
+    lv_obj_set_size(ai_overlay_bar, 300, 34);
+    lv_obj_align(ai_overlay_bar, LV_ALIGN_TOP_MID, 0, TOP_H + 12);
+    lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(ai_overlay_bar, LV_OPA_70, 0);
+    lv_obj_set_style_radius(ai_overlay_bar, 17, 0);
+    lv_obj_set_style_border_width(ai_overlay_bar, 0, 0);
+    lv_obj_set_style_pad_all(ai_overlay_bar, 0, 0);
 
-    ai_status_led = lv_led_create(ai_status_bar);
-    lv_obj_set_size(ai_status_led, 10, 10);
-    lv_led_set_color(ai_status_led, lv_color_hex(0x888888));
-    lv_led_on(ai_status_led);
-    lv_obj_align(ai_status_led, LV_ALIGN_LEFT_MID, 4, 0);
+    ai_overlay_lab = lv_label_create(ai_overlay_bar);
+    ai_status_lab = ai_overlay_lab; // 兼容
+    lv_label_set_text(ai_overlay_lab, LV_SYMBOL_MINUS " AI: IDLE");
+    lv_obj_set_style_text_font(ai_overlay_lab, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0x888888), 0);
+    lv_obj_center(ai_overlay_lab);
 
-    ai_status_lab = lv_label_create(ai_status_bar);
-    lv_label_set_text(ai_status_lab, "AI IDLE");
-    lv_obj_set_style_text_color(ai_status_lab, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(ai_status_lab, &lv_font_montserrat_12, 0);
-    lv_obj_align_to(ai_status_lab, ai_status_led, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+    // 半透明十字线叠加（辅助对齐）
+    lv_obj_t *cross_h = lv_obj_create(scr);
+    lv_obj_set_size(cross_h, CAM_W, 1);
+    lv_obj_set_pos(cross_h, 0, TOP_H + CAM_H / 2);
+    lv_obj_set_style_bg_color(cross_h, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(cross_h, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(cross_h, 0, 0);
 
-    // 零件检测框（预留，等检测模型来了绑定动态坐标）
-    // 目前先画一个固定位置的检测区域框作为占位
+    lv_obj_t *cross_v = lv_obj_create(scr);
+    lv_obj_set_size(cross_v, 1, CAM_H);
+    lv_obj_set_pos(cross_v, CAM_W / 2, TOP_H);
+    lv_obj_set_style_bg_color(cross_v, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(cross_v, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(cross_v, 0, 0);
+
+    // 检测框（默认隐藏，检测到物体时显示）
     part_detect_box = lv_obj_create(scr);
     lv_obj_set_size(part_detect_box, 200, 200);
-    lv_obj_center(part_detect_box);  // 画面中央
+    lv_obj_center(part_detect_box);
     lv_obj_set_style_bg_opa(part_detect_box, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(part_detect_box, lv_color_hex(0x00FF88), 0);
     lv_obj_set_style_border_width(part_detect_box, 2, 0);
     lv_obj_set_style_radius(part_detect_box, 4, 0);
-    lv_obj_add_flag(part_detect_box, LV_OBJ_FLAG_HIDDEN);  // 默认隐藏
+    lv_obj_add_flag(part_detect_box, LV_OBJ_FLAG_HIDDEN);
 
-    /* --- UI 区块 3：右侧综合控制面板 --- */
+    /* ===================================================================== */
+    /* 右侧操作面板                                                          */
+    /* ===================================================================== */
     lv_obj_t *rp = lv_obj_create(scr);
-    lv_obj_set_size(rp, PANEL_W, SCREEN_H - HEADER_H);
-    lv_obj_align(rp, LV_ALIGN_TOP_RIGHT, 0, HEADER_H);
+    lv_obj_set_size(rp, PANEL_W, CAM_H);
+    lv_obj_set_pos(rp, CAM_W, TOP_H);
     lv_obj_set_style_bg_color(rp, lv_color_hex(0x1A1A1F), 0);
     lv_obj_set_style_radius(rp, 0, 0);
     lv_obj_set_style_border_width(rp, 0, 0);
+    lv_obj_set_style_pad_all(rp, 0, 0);
 
-    // 面板模块：系统状态标签（右侧面板顶部）
-    sys_status_lab = lv_label_create(rp);
-    lv_label_set_text(sys_status_lab, "SYSTEM OK");
-    lv_obj_set_style_text_color(sys_status_lab, lv_palette_main(LV_PALETTE_GREEN), 0);
-    lv_obj_set_style_text_font(sys_status_lab, &lv_font_montserrat_14, 0);
-    lv_obj_align(sys_status_lab, LV_ALIGN_TOP_LEFT, 15, 15);
+    auto create_btn = [](lv_obj_t *parent, const char *text, lv_color_t bg, lv_color_t fg, int y, int h) -> lv_obj_t* {
+        lv_obj_t *btn = lv_btn_create(parent);
+        lv_obj_set_size(btn, PANEL_W - 30, h);
+        lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_set_style_bg_color(btn, bg, 0);
+        lv_obj_set_style_bg_color(btn, lv_color_darken(bg, LV_OPA_30), LV_STATE_PRESSED);
+        lv_obj_set_style_radius(btn, 8, 0);
+        lv_obj_t *lab = lv_label_create(btn);
+        lv_label_set_text(lab, text);
+        lv_obj_set_style_text_font(lab, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(lab, fg, 0);
+        lv_obj_center(lab);
+        return btn;
+    };
 
-    // 视觉检测状态灯
-    vision_det_led = lv_led_create(rp);
-    lv_obj_set_size(vision_det_led, 12, 12);
-    lv_obj_align(vision_det_led, LV_ALIGN_TOP_LEFT, 15, 40);
+    auto add_divider = [](lv_obj_t *parent, int y) {
+        lv_obj_t *line = lv_obj_create(parent);
+        lv_obj_set_size(line, PANEL_W - 40, 1);
+        lv_obj_align(line, LV_ALIGN_TOP_MID, 0, y);
+        lv_obj_set_style_bg_color(line, lv_color_hex(0x333333), 0);
+        lv_obj_set_style_border_width(line, 0, 0);
+    };
 
-    vision_det_lab = lv_label_create(rp);
-    lv_obj_set_style_text_font(vision_det_lab, &lv_font_montserrat_14, 0);
-    lv_obj_align_to(vision_det_lab, vision_det_led, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+    // 1) 紧急停止（单独隔离，最大尺寸）
+    b_emergency = create_btn(rp, LV_SYMBOL_STOP " EMERGENCY STOP", lv_color_hex(0xBC0000), lv_color_white(), 8, 76);
+    lv_obj_set_style_text_font(lv_obj_get_child(b_emergency, 0), &lv_font_montserrat_14, 0);
+    lv_obj_add_event_cb(b_emergency, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
-    // 音频检测状态灯
-    audio_det_led = lv_led_create(rp);
-    lv_obj_set_size(audio_det_led, 12, 12);
-    lv_obj_align(audio_det_led, LV_ALIGN_TOP_LEFT, 15, 60);
+    add_divider(rp, 94);
 
-    audio_det_lab = lv_label_create(rp);
-    lv_obj_set_style_text_font(audio_det_lab, &lv_font_montserrat_14, 0);
-    lv_obj_align_to(audio_det_lab, audio_det_led, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+    // 2) 视觉检测组
+    lv_obj_t *vision_title = lv_label_create(rp);
+    lv_label_set_text(vision_title, LV_SYMBOL_VIDEO " VISION");
+    lv_obj_set_style_text_font(vision_title, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(vision_title, lv_color_hex(0x888888), 0);
+    lv_obj_align(vision_title, LV_ALIGN_TOP_LEFT, 20, 102);
 
-    // 面板模块：良品率数据看板
-    p_lab = lv_label_create(rp);
-    lv_label_set_text(p_lab, "PASS: 0");
-    lv_obj_set_style_text_color(p_lab, lv_palette_main(LV_PALETTE_GREEN), 0);
-    lv_obj_align(p_lab, LV_ALIGN_TOP_LEFT, 15, 80);
+    b_vision_start = create_btn(rp, LV_SYMBOL_PLAY " VISION START", lv_palette_main(LV_PALETTE_GREEN), lv_color_white(), 120, 38);
+    lv_obj_add_event_cb(b_vision_start, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
-    f_lab = lv_label_create(rp);
-    lv_label_set_text(f_lab, "FAIL: 0");
-    lv_obj_set_style_text_color(f_lab, lv_palette_main(LV_PALETTE_RED), 0);
-    lv_obj_align(f_lab, LV_ALIGN_TOP_LEFT, 15, 105);
+    b_vision_stop = create_btn(rp, LV_SYMBOL_STOP " VISION STOP", lv_color_hex(0xCCAA00), lv_color_black(), 164, 38);
+    lv_obj_add_state(b_vision_stop, LV_STATE_DISABLED);
+    lv_obj_add_event_cb(b_vision_stop, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
-    y_lab = lv_label_create(rp);
-    lv_label_set_text(y_lab, "YIELD: 100.00%");
-    lv_obj_set_style_text_color(y_lab, lv_color_hex(0x888888), 0);
-    lv_obj_align(y_lab, LV_ALIGN_TOP_LEFT, 15, 130);
+    add_divider(rp, 212);
 
-    // 面板模块：视觉控制按钮组
-    lv_obj_t *b_v_start = lv_btn_create(rp);
-    lv_obj_set_size(b_v_start, PANEL_W - 30, 38);
-    lv_obj_align(b_v_start, LV_ALIGN_TOP_MID, 0, 155);
-    lv_obj_set_style_bg_color(b_v_start, lv_palette_main(LV_PALETTE_GREEN), 0);
-    lv_obj_t *l_vs = lv_label_create(b_v_start);
-    lv_label_set_text(l_vs, LV_SYMBOL_PLAY " VISION START");
-    lv_obj_center(l_vs);
-    lv_obj_add_event_cb(b_v_start, btn_event_cb, LV_EVENT_CLICKED, NULL);
+    // 3) 音频分析组
+    lv_obj_t *audio_title = lv_label_create(rp);
+    lv_label_set_text(audio_title, LV_SYMBOL_AUDIO " AUDIO");
+    lv_obj_set_style_text_font(audio_title, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(audio_title, lv_color_hex(0x888888), 0);
+    lv_obj_align(audio_title, LV_ALIGN_TOP_LEFT, 20, 220);
 
-    lv_obj_t *b_v_stop = lv_btn_create(rp);
-    lv_obj_set_size(b_v_stop, PANEL_W - 30, 38);
-    lv_obj_align(b_v_stop, LV_ALIGN_TOP_MID, 0, 198);
-    lv_obj_set_style_bg_color(b_v_stop, lv_color_hex(0xCCAA00), 0);
-    lv_obj_t *l_vst = lv_label_create(b_v_stop);
-    lv_label_set_text(l_vst, LV_SYMBOL_STOP " VISION STOP");
-    lv_obj_set_style_text_color(l_vst, lv_color_black(), 0);
-    lv_obj_center(l_vst);
-    lv_obj_add_event_cb(b_v_stop, btn_event_cb, LV_EVENT_CLICKED, NULL);
+    b_audio_start = create_btn(rp, LV_SYMBOL_PLAY " AUDIO START", lv_color_hex(0x0088CC), lv_color_white(), 238, 38);
+    lv_obj_add_event_cb(b_audio_start, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
-    // 面板模块：音频控制按钮组
-    lv_obj_t *b_a_start = lv_btn_create(rp);
-    lv_obj_set_size(b_a_start, PANEL_W - 30, 38);
-    lv_obj_align(b_a_start, LV_ALIGN_TOP_MID, 0, 246);
-    lv_obj_set_style_bg_color(b_a_start, lv_color_hex(0x0088CC), 0);
-    lv_obj_t *l_as = lv_label_create(b_a_start);
-    lv_label_set_text(l_as, LV_SYMBOL_AUDIO " AUDIO START");
-    lv_obj_center(l_as);
-    lv_obj_add_event_cb(b_a_start, btn_event_cb, LV_EVENT_CLICKED, NULL);
+    b_audio_stop = create_btn(rp, LV_SYMBOL_STOP " AUDIO STOP", lv_color_hex(0xCC8800), lv_color_black(), 282, 38);
+    lv_obj_add_state(b_audio_stop, LV_STATE_DISABLED);
+    lv_obj_add_event_cb(b_audio_stop, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *b_a_stop = lv_btn_create(rp);
-    lv_obj_set_size(b_a_stop, PANEL_W - 30, 38);
-    lv_obj_align(b_a_stop, LV_ALIGN_TOP_MID, 0, 289);
-    lv_obj_set_style_bg_color(b_a_stop, lv_color_hex(0xCC8800), 0);
-    lv_obj_t *l_ast = lv_label_create(b_a_stop);
-    lv_label_set_text(l_ast, LV_SYMBOL_STOP " AUDIO STOP");
-    lv_obj_set_style_text_color(l_ast, lv_color_black(), 0);
-    lv_obj_center(l_ast);
-    lv_obj_add_event_cb(b_a_stop, btn_event_cb, LV_EVENT_CLICKED, NULL);
+    add_divider(rp, 330);
 
-    // 急停按钮
-    lv_obj_t *b_e = lv_btn_create(rp);
-    lv_obj_set_size(b_e, PANEL_W - 30, 38);
-    lv_obj_align(b_e, LV_ALIGN_TOP_MID, 0, 332);
-    lv_obj_set_style_bg_color(b_e, lv_color_hex(0xBC0000), 0);
-    lv_obj_t *le = lv_label_create(b_e);
-    lv_label_set_text(le, "EMERGENCY STOP");
-    lv_obj_set_style_text_color(le, lv_color_white(), 0);
-    lv_obj_center(le);
-    lv_obj_add_event_cb(b_e, btn_event_cb, LV_EVENT_CLICKED, NULL);
+    // 4) 辅助操作
+    b_capture = create_btn(rp, LV_SYMBOL_SAVE " CAPTURE", lv_color_hex(0x0088FF), lv_color_white(), 346, 38);
+    lv_obj_add_event_cb(b_capture, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
-    // 面板模块：终端日志输出框
-    log_box = lv_textarea_create(rp);
-    lv_obj_set_size(log_box, PANEL_W - 30, 120);
-    lv_obj_align(log_box, LV_ALIGN_BOTTOM_MID, 0, -15);
-    lv_obj_set_style_bg_color(log_box, lv_color_black(), 0);
-    lv_obj_set_style_text_color(log_box, lv_palette_main(LV_PALETTE_LIGHT_GREEN), 0);
-
-    /* --- UI 区块 4：底部声学与次级分析区 --- */
+    /* ===================================================================== */
+    /* 底部声纹分析区（左下）                                                */
+    /* ===================================================================== */
     lv_obj_t *sp = lv_obj_create(scr);
-    lv_obj_set_size(sp, CAM_W, SOUND_H);
+    lv_obj_set_size(sp, ACOUSTIC_W, ACOUSTIC_H);
     lv_obj_align(sp, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_set_style_bg_color(sp, lv_color_hex(0x121216), 0);
     lv_obj_set_style_radius(sp, 0, 0);
     lv_obj_set_style_border_width(sp, 0, 0);
-    lv_obj_set_style_pad_all(sp, 0, 0);         // 消除默认 padding，防止内容被下推截断
+    lv_obj_set_style_pad_all(sp, 0, 0);
 
     lv_obj_t *sound_title = lv_label_create(sp);
     lv_label_set_text(sound_title, LV_SYMBOL_AUDIO " ACOUSTIC ANALYSIS");
+    lv_obj_set_style_text_font(sound_title, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(sound_title, lv_color_hex(0x00D2FF), 0);
-    lv_obj_align(sound_title, LV_ALIGN_TOP_LEFT, 10, 5);
+    lv_obj_align(sound_title, LV_ALIGN_TOP_LEFT, 10, 6);
 
-    // Health Score 实时波形图
+    // 实时波形图
     acoustic_chart = lv_chart_create(sp);
-    lv_obj_set_size(acoustic_chart, 520, 110);
-    lv_obj_align(acoustic_chart, LV_ALIGN_TOP_LEFT, 10, 30);
+    lv_obj_set_size(acoustic_chart, 520, 100);
+    lv_obj_align(acoustic_chart, LV_ALIGN_TOP_LEFT, 10, 28);
     lv_chart_set_type(acoustic_chart, LV_CHART_TYPE_LINE);
     lv_chart_set_range(acoustic_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 500);
     lv_chart_set_point_count(acoustic_chart, 120);
@@ -1292,44 +1560,137 @@ extern "C" void app_main(void) {
     lv_obj_set_style_size(acoustic_chart, 0, 0, LV_PART_INDICATOR);
     acoustic_chart_ser = lv_chart_add_series(acoustic_chart, lv_color_hex(0x00FF88), LV_CHART_AXIS_PRIMARY_Y);
 
-    // PASS / FAIL 判定显示区
+    // X 轴 / Y 轴刻度标签
+    lv_obj_t *x_label = lv_label_create(sp);
+    lv_label_set_text(x_label, "0s        5s        10s");
+    lv_obj_set_style_text_font(x_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(x_label, lv_color_hex(0x666666), 0);
+    lv_obj_align_to(x_label, acoustic_chart, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 2);
+
+    lv_obj_t *y_label = lv_label_create(sp);
+    lv_label_set_text(y_label, "500\n250\n0");
+    lv_obj_set_style_text_font(y_label, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(y_label, lv_color_hex(0x666666), 0);
+    lv_obj_align_to(y_label, acoustic_chart, LV_ALIGN_OUT_LEFT_TOP, -2, 0);
+
+    // 状态提示区（右侧）
     lv_obj_t *result_bg = lv_obj_create(sp);
-    lv_obj_set_size(result_bg, 160, 110);
-    lv_obj_align_to(result_bg, acoustic_chart, LV_ALIGN_OUT_RIGHT_TOP, 20, 0);
+    lv_obj_set_size(result_bg, 170, 100);
+    lv_obj_align_to(result_bg, acoustic_chart, LV_ALIGN_OUT_RIGHT_TOP, 12, 0);
     lv_obj_set_style_bg_color(result_bg, lv_color_hex(0x1A1A1F), 0);
     lv_obj_set_style_radius(result_bg, 8, 0);
     lv_obj_set_style_border_width(result_bg, 0, 0);
 
     acoustic_result_lab = lv_label_create(result_bg);
-    lv_label_set_text(acoustic_result_lab, "WAIT");
-    lv_obj_set_style_text_color(acoustic_result_lab, lv_color_hex(0x888888), 0);
+    lv_label_set_text(acoustic_result_lab, "WAIT NO HIT");
     lv_obj_set_style_text_font(acoustic_result_lab, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(acoustic_result_lab, lv_color_hex(0x888888), 0);
     lv_obj_center(acoustic_result_lab);
 
     acoustic_result_sub = lv_label_create(result_bg);
     lv_label_set_text(acoustic_result_sub, "--");
+    lv_obj_set_style_text_font(acoustic_result_sub, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(acoustic_result_sub, lv_color_hex(0x888888), 0);
-    lv_obj_set_style_text_font(acoustic_result_sub, &lv_font_montserrat_14, 0);
-    lv_obj_align(acoustic_result_sub, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_align(acoustic_result_sub, LV_ALIGN_BOTTOM_MID, 0, -6);
 
-    lv_obj_t *b_cap = lv_btn_create(rp);
-    lv_obj_set_size(b_cap, PANEL_W - 30, 38);
-    lv_obj_align(b_cap, LV_ALIGN_TOP_MID, 0, 375);
-    lv_obj_set_style_bg_color(b_cap, lv_color_hex(0x0088FF), 0); // 蓝色
-    lv_obj_t *lc = lv_label_create(b_cap); 
-    lv_label_set_text(lc, LV_SYMBOL_SAVE " CAPTURE");
-    lv_obj_center(lc);
-    lv_obj_add_event_cb(b_cap, btn_event_cb, LV_EVENT_CLICKED, NULL);
+    /* ===================================================================== */
+    /* 右下角报警与 AI 结果区                                                */
+    /* ===================================================================== */
+    lv_obj_t *alarm_cont = lv_obj_create(scr);
+    lv_obj_set_size(alarm_cont, ALARM_W, ALARM_H);
+    lv_obj_set_pos(alarm_cont, CAM_W, SCREEN_H - ALARM_H);
+    lv_obj_set_style_bg_color(alarm_cont, lv_color_hex(0x1A1A1F), 0);
+    lv_obj_set_style_radius(alarm_cont, 0, 0);
+    lv_obj_set_style_border_width(alarm_cont, 0, 0);
+    lv_obj_set_style_pad_all(alarm_cont, 0, 0);
+
+    // 报警信息卡片
+    alarm_card = lv_obj_create(alarm_cont);
+    lv_obj_set_size(alarm_card, ALARM_W - 30, 56);
+    lv_obj_align(alarm_card, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_set_style_bg_color(alarm_card, lv_color_hex(0x2A2A30), 0);
+    lv_obj_set_style_bg_opa(alarm_card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(alarm_card, 8, 0);
+    lv_obj_set_style_border_width(alarm_card, 0, 0);
+
+    alarm_label = lv_label_create(alarm_card);
+    lv_label_set_text(alarm_label, "NO ALARM");
+    lv_obj_set_style_text_font(alarm_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(alarm_label, lv_color_hex(0x888888), 0);
+    lv_obj_center(alarm_label);
+
+    // AI 检测结果卡片
+    ai_result_card = lv_obj_create(alarm_cont);
+    lv_obj_set_size(ai_result_card, ALARM_W - 30, 62);
+    lv_obj_align(ai_result_card, LV_ALIGN_TOP_MID, 0, 72);
+    lv_obj_set_style_bg_color(ai_result_card, lv_color_hex(0x222228), 0);
+    lv_obj_set_style_bg_opa(ai_result_card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(ai_result_card, 8, 0);
+    lv_obj_set_style_border_width(ai_result_card, 0, 0);
+
+    ai_ng_label = lv_label_create(ai_result_card);
+    lv_label_set_text(ai_ng_label, "AI NG: 0.0%");
+    lv_obj_set_style_text_font(ai_ng_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(ai_ng_label, lv_palette_main(LV_PALETTE_RED), 0);
+    lv_obj_align(ai_ng_label, LV_ALIGN_TOP_LEFT, 8, 6);
+
+    // NG 进度条：背景 + 填充矩形
+    ai_ng_bar = lv_obj_create(ai_result_card);
+    lv_obj_set_size(ai_ng_bar, ALARM_W - 46, 8);
+    lv_obj_align(ai_ng_bar, LV_ALIGN_TOP_LEFT, 8, 24);
+    lv_obj_set_style_bg_color(ai_ng_bar, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_radius(ai_ng_bar, 4, 0);
+    lv_obj_set_style_border_width(ai_ng_bar, 0, 0);
+    lv_obj_set_style_pad_all(ai_ng_bar, 0, 0);
+    ai_ng_fill = lv_obj_create(ai_ng_bar);
+    lv_obj_set_size(ai_ng_fill, 0, 8);
+    lv_obj_align(ai_ng_fill, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_bg_color(ai_ng_fill, lv_palette_main(LV_PALETTE_RED), 0);
+    lv_obj_set_style_radius(ai_ng_fill, 4, 0);
+    lv_obj_set_style_border_width(ai_ng_fill, 0, 0);
+
+    ai_ok_label = lv_label_create(ai_result_card);
+    lv_label_set_text(ai_ok_label, "AI OK: 0.0%");
+    lv_obj_set_style_text_font(ai_ok_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(ai_ok_label, lv_palette_main(LV_PALETTE_GREEN), 0);
+    lv_obj_align(ai_ok_label, LV_ALIGN_TOP_LEFT, 8, 36);
+
+    // OK 进度条：背景 + 填充矩形
+    ai_ok_bar = lv_obj_create(ai_result_card);
+    lv_obj_set_size(ai_ok_bar, ALARM_W - 46, 8);
+    lv_obj_align(ai_ok_bar, LV_ALIGN_TOP_LEFT, 8, 54);
+    lv_obj_set_style_bg_color(ai_ok_bar, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_radius(ai_ok_bar, 4, 0);
+    lv_obj_set_style_border_width(ai_ok_bar, 0, 0);
+    lv_obj_set_style_pad_all(ai_ok_bar, 0, 0);
+    ai_ok_fill = lv_obj_create(ai_ok_bar);
+    lv_obj_set_size(ai_ok_fill, 0, 8);
+    lv_obj_align(ai_ok_fill, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_bg_color(ai_ok_fill, lv_palette_main(LV_PALETTE_GREEN), 0);
+    lv_obj_set_style_radius(ai_ok_fill, 4, 0);
+    lv_obj_set_style_border_width(ai_ok_fill, 0, 0);
+
+    // 日志框（保留在右下角卡片下方，用于调试信息）
+    log_box = lv_textarea_create(alarm_cont);
+    lv_obj_set_size(log_box, ALARM_W - 30, 0); // 高度为 0：保留句柄但不再显示
+    lv_obj_add_flag(log_box, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(log_box, lv_color_black(), 0);
+    lv_obj_set_style_text_color(log_box, lv_palette_main(LV_PALETTE_LIGHT_GREEN), 0);
 
     update_system_status(false);
     update_vision_status(VISION_STATE_STOPPED);
     update_audio_status(AUDIO_STATE_STOPPED);
-    update_ai_status_bar(false);
+    update_emergency_status(false);
+    update_ai_status_bar_bool(false);
     bsp_display_unlock();
 
     // ----------------------------------------------------------------------
     // 启动 FreeRTOS 多核硬件调度机制
     // ----------------------------------------------------------------------
+    if (xTaskCreatePinnedToCore(display_refresh_task, "DispRefresh", 4096, NULL, 6, NULL, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Display refresh task create failed");
+        return;
+    }
     if (xTaskCreatePinnedToCore(ui_event_task, "UI_Task", 4096 * 2, NULL, 7, NULL, 0) != pdPASS) {
         ESP_LOGE(TAG, "UI task create failed");
         return;
