@@ -376,7 +376,7 @@ void ui_event_task(void *pvParameters) {
                     case CMD_VISION_START:
                         update_vision_status(VISION_STATE_RUNNING);
                         update_ai_status_bar_bool(true);
-                        lighting_set_brightness(80);  // 开始检测时打开照明
+                        lighting_set_brightness(30);  // 开始检测时打开照明
                         ui_reset_sample_box();
 #if APP_ENABLE_SAMPLE_ROI
                         g_sample_background_capture_requested = true;
