@@ -1,0 +1,4 @@
+name,raw_path,wav_path,sample_rate,sample_count,duration_s,mean,dc_offset,peak,peak_dbfs,rms,rms_dbfs,abs_mean,zero_crossing_rate,clipped_ratio,dominant_freq_hz,spectral_centroid_hz
+AUD0001,F:\AI-detection\tools\AUDIO\qw\AUD0001.RAW,F:\AI-detection\tools\AUDIO\wav\AUD0001.wav,16000,16000,1.0,64.786,64.786,16384,-6.021,734.283,-32.992,64.786,0.0,0.0,1.0,1285.7
+AUD0002,F:\AI-detection\tools\AUDIO\qw\AUD0002.RAW,F:\AI-detection\tools\AUDIO\wav\AUD0002.wav,16000,16000,1.0,-15.79,-15.79,4096,-18.062,182.531,-45.082,15.79,0.00025,0.0,1.0,1279.7
+AUD0003,F:\AI-detection\tools\AUDIO\qw\AUD0003.RAW,F:\AI-detection\tools\AUDIO\wav\AUD0003.wav,16000,16000,1.0,0.0,0.0,6,-74.746,0.047,-116.787,0.0,0.0,0.0,1.0,3988.2

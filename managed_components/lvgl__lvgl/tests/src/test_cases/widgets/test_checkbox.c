@@ -4,9 +4,6 @@
 
 #include "unity/unity.h"
 
-#include "lv_test_helpers.h"
-#include "lv_test_indev.h"
-
 void test_checkbox_creation_successful(void);
 void test_checkbox_should_call_event_handler_on_click_when_enabled(void);
 void test_checkbox_should_have_default_text_when_created(void);
@@ -25,6 +22,17 @@ static void event_handler(lv_event_t * e)
     if(LV_EVENT_VALUE_CHANGED == code) {
         event_called = true;
     }
+}
+
+void setUp(void)
+{
+    /* Function run before every test */
+}
+
+void tearDown(void)
+{
+    /* Function run after every test */
+    lv_obj_clean(lv_screen_active());
 }
 
 void test_checkbox_creation_successful(void)
@@ -116,6 +124,32 @@ void test_checkbox_rtl(void)
     lv_obj_set_style_base_dir(test_checkbox, LV_BASE_DIR_RTL, 0);
 
     TEST_ASSERT_EQUAL_SCREENSHOT("widgets/checkbox_rtl_1.png");
+}
+
+void test_checkbox_style_opa(void)
+{
+    lv_obj_t * obj = lv_checkbox_create(lv_screen_active());
+    lv_obj_set_style_opa(obj, LV_OPA_0, LV_PART_INDICATOR);
+    lv_obj_center(obj);
+
+    TEST_ASSERT_EQUAL_SCREENSHOT("widgets/checkbox_1.png");
+}
+
+void test_checkbox_properties(void)
+{
+#if LV_USE_OBJ_PROPERTY
+    lv_obj_t * obj = lv_checkbox_create(lv_screen_active());
+    lv_property_t prop = { };
+
+    /* Test TEXT property */
+    prop.id = LV_PROPERTY_CHECKBOX_TEXT;
+    prop.ptr = "Test Checkbox";
+    TEST_ASSERT_TRUE(lv_obj_set_property(obj, &prop) == LV_RESULT_OK);
+    TEST_ASSERT_EQUAL_STRING("Test Checkbox", lv_obj_get_property(obj, LV_PROPERTY_CHECKBOX_TEXT).ptr);
+    TEST_ASSERT_EQUAL_STRING("Test Checkbox", lv_checkbox_get_text(obj));
+
+    lv_obj_delete(obj);
+#endif
 }
 
 #endif

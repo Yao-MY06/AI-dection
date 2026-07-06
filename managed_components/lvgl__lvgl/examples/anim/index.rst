@@ -1,3 +1,5 @@
+.. example_heading:  Animations
+
 
 Start animation on an event
 ---------------------------
@@ -13,6 +15,11 @@ Playback animation
 Cubic Bezier animation
 ----------------------
 .. lv_example:: anim/lv_example_anim_3
+  :language: c
+
+Pause animation
+----------------------
+.. lv_example:: anim/lv_example_anim_4
   :language: c
 
 Animation timeline

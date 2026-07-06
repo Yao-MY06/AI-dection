@@ -1,13 +1,32 @@
-# F:/stm/p4_defect_detect/main/CMakeLists.txt
+﻿# AI 宸ヤ笟璐ㄦ缁堢 - main 缁勪欢
+# 灏嗗師鏈?monolithic main.cpp 鎷嗗垎涓哄涓亴璐ｆ竻鏅扮殑妯″潡
 
-# 1. 注册组件：
-# 如果你把 main.c 改成了 main.cpp，记得把这里也改了
-# 同时添加 REQUIRES esp-dl 来告诉编译器链接神经网络库
-idf_component_register(SRCS "main.cpp" "app_video.c"
-                    INCLUDE_DIRS "."
-                    REQUIRES esp-dl driver esp-dsp esp32-camera fatfs sdmmc)
+idf_component_register(
+    SRCS
+        "main.cpp"
+        "app_video.c"
+        "ui_manager.cpp"
+        "ai_vision.cpp"
+        "ai_vision_monitor.cpp"
+        "ai_yolo_output_layout.cpp"
+        "audio_capture.cpp"
+        "audio_analysis.cpp"
+        "audio_ai.cpp"
+        "striker.cpp"
+        "hardware_control.cpp"
+        "sd_storage.cpp"
+        "video_pipeline.cpp"
+        "lighting.cpp"
+        "servo.cpp"
+        "servo_math.cpp"
+        "ui_commands.cpp"
+        # "sample_roi.cpp"  # Object Detection 鎺ョ鏍峰搧妗嗭紝鏃ц儗鏅樊鍒?ROI 鏆傚仠缂栬瘧
+    INCLUDE_DIRS "."
+    REQUIRES esp-dl driver esp-dsp esp32-camera fatfs sdmmc
+)
 
-# 2. 嵌入 AI 模型：
-# 假设你的 best_model.espdl 放在工程根目录的 model 文件夹里
-# 这行代码会将模型转换为二进制数组，并生成 _binary_best_model_espdl_start 符号
-target_add_binary_data(${COMPONENT_LIB} "../model/best_model.espdl" BINARY)
+# 灏嗚缁冨ソ鐨?AI 妯″瀷鎸?16 瀛楄妭瀵归綈宓屽叆鍒板浐浠朵腑
+set(cmake_dir "${CMAKE_CURRENT_LIST_DIR}/../managed_components/espressif__esp-dl/fbs_loader/cmake")
+include("${cmake_dir}/utilities.cmake")
+target_add_aligned_binary_data(${COMPONENT_LIB} "../model/best_model.espdl" BINARY)
+

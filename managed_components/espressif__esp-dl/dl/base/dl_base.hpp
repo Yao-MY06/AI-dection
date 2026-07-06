@@ -11,43 +11,47 @@ namespace dl {
 namespace base {
 template <typename feature_t>
 struct ArgsType {
-    feature_t *input_element;           /*!<  0 */
-    int input_channel;                  /*!<  1 */
-    int input_stride_y_offset;          /*!<  2 input_width_with_padding * input_channel_with_padding * stride_y */
-    int input_stride_x_offset;          /*!<  3 input_channel_with_padding * stride_x */
-    int input_dilation_y_offset;        /*!<  4 input_width_with_padding * input_channel_with_padding * dilation_y */
-    int input_dilation_x_offset;        /*!<  5 input_channel_with_padding * dilation_x */
-                                        //
-    feature_t *output_element;          /*!<  6 */
-    int output_height;                  /*!<  7 */
-    int output_width;                   /*!<  8 */
-    int output_channel;                 /*!<  9 */
-    int output_y_offset;                /*!< 10 output_width_with_padding * output_channel_with_padding */
-    int output_x_offset;                /*!< 11 output_channel_with_padding */
-                                        //
-    const void *filter_element;         /*!< 12 */
-    int filter_height;                  /*!< 13 */
-    int filter_width;                   /*!< 14 */
-    int filter_y_offset;                /*!< 15 filter_width * input_channel */
-    int mac_shift;                      /*!< 16 mac_shift = output.exponent - filter.exponent - input.exponent */
-                                        //
-    const void *bias_element;           /*!< 17 */
-                                        //
-    activation_type_t activation_type;  /*!< 18 */
-    int activation_alpha;               /*!< 19 */
-    const void *activation_alpha_ptr;   /*!< 20 */
-    int activation_shift;               /*!< 21 */
-                                        //
-    int c_rs1_1;                        /*!< 22 (input_channel >> 1) - 1 */
-    int c_rs2_1;                        /*!< 23 (input_channel >> 2) - 1 */
-    int n_div_x;                        /*!< 24 output_channel / (vector_width / element_width) */
-    int c_div_x_1;                      /*!< 25 input_channel / (vector_width / element_width) - 1 */
+    feature_t *input_element;          /*!<  0 */
+    int input_channel;                 /*!<  1 */
+    int input_stride_y_offset;         /*!<  2 input_width_with_padding * input_channel_with_padding * stride_y */
+    int input_stride_x_offset;         /*!<  3 input_channel_with_padding * stride_x */
+    int input_dilation_y_offset;       /*!<  4 input_width_with_padding * input_channel_with_padding * dilation_y */
+    int input_dilation_x_offset;       /*!<  5 input_channel_with_padding * dilation_x */
+                                       //
+    feature_t *output_element;         /*!<  6 */
+    int output_height;                 /*!<  7 */
+    int output_width;                  /*!<  8 */
+    int output_channel;                /*!<  9 */
+    int output_y_offset;               /*!< 10 output_width_with_padding * output_channel_with_padding */
+    int output_x_offset;               /*!< 11 output_channel_with_padding */
+                                       //
+    const void *filter_element;        /*!< 12 */
+    int filter_height;                 /*!< 13 */
+    int filter_width;                  /*!< 14 */
+    int filter_y_offset;               /*!< 15 filter_width * input_channel */
+    int mac_shift;                     /*!< 16 mac_shift = output.exponent - filter.exponent - input.exponent */
+                                       //
+    const void *bias_element;          /*!< 17 */
+                                       //
+    activation_type_t activation_type; /*!< 18 */
+    int activation_alpha;              /*!< 19 */
+    const void *activation_alpha_ptr;  /*!< 20 */
+    int activation_shift;              /*!< 21 */
+                                       //
+    int c_rs1_1;                       /*!< 22 (input_channel >> 1) - 1 */
+    int c_rs2_1;                       /*!< 23 (input_channel >> 2) - 1 */
+    int n_div_x;                       /*!< 24 output_channel / (vector_width / element_width) */
+    int c_div_x_1;                     /*!< 25 input_channel / (vector_width / element_width) - 1 */
+#if CONFIG_PIE_V2_BOOST
+    feature_t *tie_filter_channel_factor; /*!< 26 */
+#else
     int16_t *tie_filter_channel_factor; /*!< 26 */
-                                        //
-    int xtensa_dilation_x_offset;       /*!< 27 (dilation_x * input_channel_with_padding - input_channel) *
-                                           sizeof(feature_t)*/
-    int xtensa_dilation_y_offset;       /*!< 28 */
-                                        //
+#endif
+    //
+    int xtensa_dilation_x_offset;     /*!< 27 (dilation_x * input_channel_with_padding - input_channel) *
+                                         sizeof(feature_t)*/
+    int xtensa_dilation_y_offset;     /*!< 28 */
+                                      //
     int tie_conv2d_dilation_x_offset; /*!< 29 TODO: not used, to be deleted. | dilation_x * input_channel_with_padding *
                                          sizeof(feature_t) - (c_div_x_1 + 1) * 16 */
     int tie_conv2d_dilation_y_offset; /*!< 30 TODO: not used, to be deleted. | */
@@ -148,7 +152,7 @@ std::vector<ArgsType<feature_t>> get_conv_operation_args(TensorBase *output,
                                                          const runtime_mode_t runtime_mode = RUNTIME_MODE_AUTO,
                                                          bool malloc_debug_memory = false)
 {
-    ArgsType<feature_t> args;
+    ArgsType<feature_t> args = {};
     args.input_element = (feature_t *)input->get_element_ptr();
     args.output_element = (feature_t *)output->get_element_ptr();
     args.filter_element = filter->get_element_ptr();
@@ -205,7 +209,7 @@ std::vector<ArgsType<feature_t>> get_conv_operation_args(TensorBase *output,
             args.filter_c = filter->shape[2]; // dw: filter->shape[3]. conv: filter->shape[2].
         } else {
             // depthwise
-#if CONFIG_TIE728_BOOST || CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V1_BOOST || CONFIG_PIE_V2_BOOST
             args.filter_y_offset = 16;
 #else
             args.filter_y_offset = 0;
@@ -241,7 +245,25 @@ std::vector<ArgsType<feature_t>> get_conv_operation_args(TensorBase *output,
     // printf("input: %d, %d, %d, output: %d, %d, %d\n", input->shape[1], args.input_width, args.input_channel,
     // output->shape[1], args.output_width, args.output_channel);
 
-    args.mac_shift = output->exponent - filter->exponent - input->exponent;
+    if (filter->exponent.is_per_channel()) {
+#if CONFIG_PIE_V2_BOOST
+        // per-channel quantization
+        args.mac_shift = INT_MIN;
+        args.tie_filter_channel_factor = (feature_t *)tool::calloc_aligned(
+            dl::tool::get_aligned_size(args.output_channel * sizeof(feature_t)), 1, MALLOC_CAP_DEFAULT);
+        for (int i = 0; i < args.output_channel; i++) {
+            args.tie_filter_channel_factor[i] =
+                (feature_t)(output->exponent - filter->exponent.get(i) - input->exponent);
+        }
+#else
+        // Don't support per-channel quantization
+        args.mac_shift = INT_MIN;
+        args.tie_filter_channel_factor = NULL;
+#endif
+    } else {
+        // per-tensor quantization
+        args.mac_shift = output->exponent - filter->exponent - input->exponent;
+    }
 
     args.bias_element = bias ? bias->get_element_ptr() : NULL; // TODO: auto_split
     args.activation_type = activate;
@@ -348,7 +370,12 @@ void conv_operation_shell(ArgsType<feature_t> &args,
     feature_t *output_ptr = (feature_t *)args.output_element;
     if (args.padding_h_head || args.padding_w_head || args.padding_h_tail || args.padding_w_tail) { // padding same
         int n_h_head = (args.padding_h_head + args.stride_y - 1) / args.stride_y;
+        if (n_h_head > args.output_height)
+            n_h_head = args.output_height;
         int n_w_head = (args.padding_w_head + args.stride_x - 1) / args.stride_x;
+        if (n_w_head > args.output_width)
+            n_w_head = args.output_width;
+
         int n_h_body = ((args.input_height + args.padding_h_head - args.dilation_h * (args.filter_height - 1) - 1) /
                             args.stride_y +
                         1) -
@@ -363,7 +390,12 @@ void conv_operation_shell(ArgsType<feature_t> &args,
             n_w_body = 0;
 
         int n_h_tail = args.output_height - n_h_head - n_h_body;
+        if (n_h_tail < 0)
+            n_h_tail = 0;
         int n_w_tail = args.output_width - n_w_head - n_w_body;
+        if (n_w_tail < 0)
+            n_w_tail = 0;
+
         int filter_h = args.filter_height;
         int filter_w = args.filter_width;
         feature_t *filter_ptr = (feature_t *)(args.filter_element);
@@ -376,7 +408,7 @@ void conv_operation_shell(ArgsType<feature_t> &args,
             feature_t *filter_ptr_unaligned = (feature_t *)(args.filter_element_unaligned);
             feature_t *filter_ptr_y_unaligned;
             int unaligned_filter_c_n_offset = args.filter_c * sizeof(feature_t);
-#if CONFIG_TIE728_BOOST || CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V1_BOOST || CONFIG_PIE_V2_BOOST
             int filter_c_n_offset = args.n_div_x ? args.filter_c * 16 : unaligned_filter_c_n_offset;
 #else
             int filter_c_n_offset = unaligned_filter_c_n_offset;
@@ -1174,7 +1206,12 @@ void dwconv_operation_shell(ArgsType<feature_t> &args,
     feature_t *output_ptr = (feature_t *)args.output_element;
     if (args.padding_h_head || args.padding_w_head || args.padding_h_tail || args.padding_w_tail) { // padding same
         int n_h_head = (args.padding_h_head + args.stride_y - 1) / args.stride_y;
+        if (n_h_head > args.output_height)
+            n_h_head = args.output_height;
         int n_w_head = (args.padding_w_head + args.stride_x - 1) / args.stride_x;
+        if (n_w_head > args.output_width)
+            n_w_head = args.output_width;
+
         int n_h_body = ((args.input_height + args.padding_h_head - args.dilation_h * (args.filter_height - 1) - 1) /
                             args.stride_y +
                         1) -
@@ -1187,8 +1224,14 @@ void dwconv_operation_shell(ArgsType<feature_t> &args,
             n_w_head;
         if (n_w_body < 0)
             n_w_body = 0;
+
         int n_h_tail = args.output_height - n_h_head - n_h_body;
+        if (n_h_tail < 0)
+            n_h_tail = 0;
         int n_w_tail = args.output_width - n_w_head - n_w_body;
+        if (n_w_tail < 0)
+            n_w_tail = 0;
+
         int filter_h = args.filter_height;
         int filter_w = args.filter_width;
         feature_t *filter_ptr = (feature_t *)(args.filter_element);

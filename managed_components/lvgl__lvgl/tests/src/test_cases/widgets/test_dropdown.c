@@ -1,9 +1,7 @@
 #if LV_BUILD_TEST
 #include "../lvgl.h"
 #include "../../lvgl_private.h"
-
 #include "unity/unity.h"
-#include "lv_test_indev.h"
 #include <string.h>
 
 void setUp(void)
@@ -16,6 +14,7 @@ void tearDown(void)
     /* Function run after every test */
     lv_obj_clean(lv_screen_active());
 }
+
 void test_dropdown_create_delete(void)
 {
     lv_dropdown_create(lv_screen_active());
@@ -165,7 +164,7 @@ void test_dropdown_keypad(void)
     lv_obj_clean(lv_screen_active());
 
     lv_group_t * g = lv_group_create();
-    lv_indev_set_group(lv_test_keypad_indev, g);
+    lv_indev_set_group(lv_test_indev_get_indev(LV_INDEV_TYPE_KEYPAD), g);
 
     lv_obj_t * dd1 = lv_dropdown_create(lv_screen_active());
     lv_obj_set_pos(dd1, 20, 20);
@@ -258,7 +257,7 @@ void test_dropdown_keypad(void)
     TEST_ASSERT_FALSE(lv_dropdown_is_open(dd1));
     TEST_ASSERT_NOT_NULL(lv_dropdown_get_list(dd2));
 
-    lv_indev_set_group(lv_test_keypad_indev, NULL);
+    lv_indev_set_group(lv_test_indev_get_indev(LV_INDEV_TYPE_KEYPAD), NULL);
     lv_group_delete(g);
 }
 
@@ -267,7 +266,7 @@ void test_dropdown_encoder(void)
     lv_obj_clean(lv_screen_active());
 
     lv_group_t * g = lv_group_create();
-    lv_indev_set_group(lv_test_encoder_indev, g);
+    lv_indev_set_group(lv_test_indev_get_indev(LV_INDEV_TYPE_ENCODER), g);
 
     lv_obj_t * dd1 = lv_dropdown_create(lv_screen_active());
     lv_obj_set_pos(dd1, 20, 20);
@@ -302,9 +301,9 @@ void test_dropdown_encoder(void)
     lv_test_encoder_click();
     lv_test_encoder_turn(2);
     lv_test_encoder_press();
-    lv_test_indev_wait(1000);  //Long press
+    lv_test_wait(1000);  //Long press
     lv_test_encoder_release();
-    lv_test_indev_wait(50);
+    lv_test_wait(50);
     TEST_ASSERT_FALSE(lv_dropdown_is_open(dd1));
     TEST_ASSERT_EQUAL(4, lv_dropdown_get_selected(dd1));
     TEST_ASSERT_EQUAL(2, event_cnt);
@@ -314,7 +313,7 @@ void test_dropdown_encoder(void)
     TEST_ASSERT_FALSE(lv_dropdown_is_open(dd1));
     TEST_ASSERT_TRUE(lv_dropdown_is_open(dd2));
 
-    lv_indev_set_group(lv_test_encoder_indev, NULL);
+    lv_indev_set_group(lv_test_indev_get_indev(LV_INDEV_TYPE_ENCODER), NULL);
     lv_group_delete(g);
 }
 
@@ -374,7 +373,7 @@ void test_dropdown_render_2(void)
     lv_dropdown_open(dd1);
 
     lv_obj_t * dd2 = lv_dropdown_create(lv_screen_active());
-    lv_dropdown_set_text(dd2, "Go Up");
+    lv_dropdown_set_text_static(dd2, "Go Up");
     lv_dropdown_set_options(dd2, "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15");
     lv_dropdown_set_symbol(dd2, NULL);
     lv_obj_align(dd2, LV_ALIGN_LEFT_MID, 150, 50);
@@ -404,7 +403,7 @@ void test_dropdown_render_2(void)
     lv_dropdown_open(dd5);
 
     lv_obj_t * dd6 = lv_dropdown_create(lv_screen_active());
-    lv_dropdown_set_text(dd6, "Right");
+    lv_dropdown_set_text_static(dd6, "Right");
     lv_dropdown_set_options(dd6, "1aaa\n2aa\n3aa");
     lv_dropdown_set_dir(dd6, LV_DIR_RIGHT);
     lv_dropdown_set_symbol(dd6, LV_SYMBOL_RIGHT);
@@ -413,7 +412,7 @@ void test_dropdown_render_2(void)
     lv_obj_set_style_text_align(lv_dropdown_get_list(dd6), LV_TEXT_ALIGN_RIGHT, 0);
 
     lv_obj_t * dd7 = lv_dropdown_create(lv_screen_active());
-    lv_dropdown_set_text(dd7, "Left");
+    lv_dropdown_set_text_static(dd7, "Left");
     lv_dropdown_set_options(dd7, "1aaa\n2\n3");
     lv_dropdown_set_dir(dd7, LV_DIR_LEFT);
     lv_dropdown_set_symbol(dd7, LV_SYMBOL_LEFT);
@@ -451,6 +450,40 @@ void test_dropdown_get_options_should_check_lengths(void)
     lv_dropdown_set_options(dd, "Option 1\nOption 2\nOption 3\nOption");
     TEST_ASSERT_EQUAL_INT(3, lv_dropdown_get_option_index(dd, "Option"));
     TEST_ASSERT_EQUAL_INT(-1, lv_dropdown_get_option_index(dd, "Option "));
+}
+
+void test_dropdown_text_align(void)
+{
+    lv_obj_set_flex_flow(lv_screen_active(), LV_FLEX_FLOW_COLUMN_WRAP);
+    lv_obj_t * dd;
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    lv_obj_set_style_base_dir(dd, LV_BASE_DIR_RTL, 0);
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_set_style_base_dir(dd, LV_BASE_DIR_RTL, 0);
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_base_dir(dd, LV_BASE_DIR_RTL, 0);
+
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    lv_dropdown_set_symbol(dd, NULL);
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_dropdown_set_symbol(dd, NULL);
+    dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_set_style_text_align(dd, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_dropdown_set_symbol(dd, NULL);
+
+    TEST_ASSERT_EQUAL_SCREENSHOT("widgets/dropdown_3.png");
 }
 
 void test_dropdown_properties(void)

@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.5.11
+
+### Bug Fixed
+
+- Fixed ADC codec build error on IDF v6.0 and master
+
+## v1.5.10
+
+### Bug Fixed
+
+- Fixed ES8389 disable and enable issues: use bias standby via `es8389_stop()` instead of full suspend when disabling the codec.
+- Fixed ES8156 Playback/Record entries in README and README_CN.
+
+## v1.5.9
+
+### Bug Fixed
+
+- Fixed build failure on ESP-IDF <= 5.4 caused by missing `bclk_div` field in `clk_cfg`.
+
+## v1.5.8
+
+### Bug Fixed
+
+- Fixed open failures when separate ADC and DAC `data_if` instances on the same I2S port use the same audio parameters.
+- Fixed I2S clock source reconfiguration using the wrong `data_if` instance when separate RX and TX `data_if` instances share the same I2S port.
+
 ## v1.5.7
 
 ### Feature

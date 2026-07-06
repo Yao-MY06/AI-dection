@@ -18,6 +18,9 @@
 #define DL_LOG_DETECT_LATENCY 0 /*!< - 1: print the latency of each parts of detect */
                                 /*!< - 0: mute */
 
+#define DL_FAST_MATH 0 /*!< - 1: use fast math functions, which may have lower accuracy. */
+                       /*!< - 0: use accurate math functions. */
+
 #if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32S3
 #define CONFIG_XTENSA_BOOST 1
 #else
@@ -25,15 +28,21 @@
 #endif
 
 #if CONFIG_IDF_TARGET_ESP32S3
-#define CONFIG_TIE728_BOOST 1
+#define CONFIG_PIE_V1_BOOST 1
 #else
-#define CONFIG_TIE728_BOOST 0
+#define CONFIG_PIE_V1_BOOST 0
 #endif
 
-#if CONFIG_IDF_TARGET_ESP32P4
-#define CONFIG_ESP32P4_BOOST 1
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
+#define CONFIG_PIE_V2_BOOST 1
 #else
-#define CONFIG_ESP32P4_BOOST 0
+#define CONFIG_PIE_V2_BOOST 0
 #endif
 
 #define CONFIG_ACCURATE_INFER 1
+
+#if CONFIG_IDF_TARGET_ESP32P4 || CONFIG_IDF_TARGET_ESP32S31
+#define CONFIG_ROUND_HALF_EVEN_ENABLED 1
+#else
+#define CONFIG_ROUND_HALF_EVEN_ENABLED 0
+#endif

@@ -34,11 +34,14 @@ public:
      * @param fbs_model       FlatBuffer's Model
      * @param execution_plan  Topological sorted module list
      * @param context         Model context
+     * @param input_shapes    Optional map to override graph input shapes. The key is the graph input name and the
+     *                        value is the shape. If empty, the shapes stored in fbs_model are used.
      * @return Bool Return true if the allocation is successful, false otherwise.
      */
     virtual bool alloc(fbs::FbsModel *fbs_model,
                        std::vector<dl::module::Module *> &execution_plan,
-                       ModelContext *context) = 0;
+                       ModelContext *context,
+                       const std::map<std::string, std::vector<int>> &input_shapes = {}) = 0;
 };
 
 /**
@@ -352,14 +355,6 @@ public:
         this->is_free = true;
         this->tensor = nullptr;
     }
-
-    /**
-     * @brief get aligned size, which is 16/alignment bytes aligned
-     *
-     * @param size
-     * @return size_t
-     */
-    size_t get_aligned_size(size_t size);
 };
 
 /**

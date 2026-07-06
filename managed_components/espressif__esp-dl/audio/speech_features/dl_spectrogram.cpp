@@ -24,7 +24,8 @@ esp_err_t Spectrogram::process_frame(const float *input, int win_len, float *out
         output[0] = compute_energy(m_cache, win_len, m_config.log_epsilon);
     }
 
-    apply_preemphasis(m_cache, win_len, m_config.preemphasis, prev);
+    // Use m_cache[0] as prev to match Kaldi's replicate padding: y[0] = x[0] - α·x[0] = (1-α)·x[0]
+    apply_preemphasis(m_cache, win_len, m_config.preemphasis, m_cache[0]);
 
     apply_window(m_cache, win_len, m_win_func);
 
@@ -42,7 +43,7 @@ esp_err_t Spectrogram::process_frame(const float *input, int win_len, float *out
 
     if (m_config.use_log_fbank == 1) {
         float epsilon = m_config.log_epsilon;
-        for (int j = 1; j < m_feature_dim; j++) output[j] = logf(MAX(m_cache[j], epsilon));
+        for (int j = 1; j < m_feature_dim; j++) output[j] = logf(DL_MAX(m_cache[j], epsilon));
     } else if (m_config.use_log_fbank == 2) {
         float epsilon = m_config.log_epsilon;
         for (int j = 1; j < m_feature_dim; j++) output[j] = logf(m_cache[j] + epsilon);

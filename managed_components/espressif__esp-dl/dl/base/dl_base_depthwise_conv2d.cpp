@@ -74,18 +74,22 @@ inline void load_depthwise_conv2d_33c1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
                                            n_wise_func_s16_t &n_wise_func,
                                            const ArgsType<int16_t> &args)
 {
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     if (args.output_channel % 8 == 0 && args.input_channel % 8 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_33c1_bias;
-                i_impl_func = dl_esp32p4_s16_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_33c1_bias
+                                                           : dl_esp32p4_s16_depthwise_conv2d_33c1_bias;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_bias
+                                                        : dl_esp32p4_s16_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_33c1_bias_relu;
-                i_impl_func = dl_esp32p4_s16_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_33c1_bias_relu
+                                                           : dl_esp32p4_s16_depthwise_conv2d_33c1_bias_relu;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_bias_relu
+                                                        : dl_esp32p4_s16_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_33c1_bias_relu;
@@ -99,12 +103,16 @@ inline void load_depthwise_conv2d_33c1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_33c1;
-                i_impl_func = dl_esp32p4_s16_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_33c1
+                                                           : dl_esp32p4_s16_depthwise_conv2d_33c1;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1
+                                                        : dl_esp32p4_s16_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_33c1_relu;
-                i_impl_func = dl_esp32p4_s16_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_33c1_relu
+                                                           : dl_esp32p4_s16_depthwise_conv2d_33c1_relu;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_relu
+                                                        : dl_esp32p4_s16_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_33c1_relu;
@@ -120,12 +128,20 @@ inline void load_depthwise_conv2d_33c1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_bias;
-                i_impl_func = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_33c1_bias
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_bias;
+                i_impl_func = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1_bias
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_bias_relu;
-                i_impl_func = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_33c1_bias_relu
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_bias_relu;
+                i_impl_func = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1_bias_relu
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_bias_relu;
@@ -139,12 +155,18 @@ inline void load_depthwise_conv2d_33c1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1;
-                i_impl_func = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_33c1
+                                                           : dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1
+                                                        : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_relu;
-                i_impl_func = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_33c1_relu
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_relu;
+                i_impl_func = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1_relu
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_33c1_relu;
@@ -157,7 +179,7 @@ inline void load_depthwise_conv2d_33c1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
             }
         }
     }
-#elif CONFIG_TIE728_BOOST
+#elif CONFIG_PIE_V1_BOOST
     if (args.output_channel % 8 == 0 && args.input_channel % 8 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         if (args.bias_element) {
@@ -284,16 +306,18 @@ inline void load_depthwise_conv2d_hwc1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
                                            n_wise_func_s16_t &n_wise_func,
                                            const ArgsType<int16_t> &args)
 {
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     if (args.output_channel % 8 == 0 && args.input_channel % 8 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_bias
+                                                           : dl_esp32p4_s16_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_bias_relu
+                                                           : dl_esp32p4_s16_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_hwc1_bias_relu;
@@ -305,10 +329,12 @@ inline void load_depthwise_conv2d_hwc1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1
+                                                           : dl_esp32p4_s16_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_relu
+                                                           : dl_esp32p4_s16_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_depthwise_conv2d_hwc1_relu;
@@ -322,10 +348,14 @@ inline void load_depthwise_conv2d_hwc1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1_bias
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1_bias_relu
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_bias_relu;
@@ -337,10 +367,13 @@ inline void load_depthwise_conv2d_hwc1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1
+                                                           : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s16_unaligned_depthwise_conv2d_per_channel_hwc1_relu
+                    : dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // i_impl_func_sp = dl_esp32p4_s16_unaligned_depthwise_conv2d_hwc1_relu;
@@ -353,7 +386,7 @@ inline void load_depthwise_conv2d_hwc1_s16(ImplFunc_t<int16_t, int16_t> &i_impl_
     }
 
     i_impl_func = i_impl_func_sp;
-#elif CONFIG_TIE728_BOOST
+#elif CONFIG_PIE_V1_BOOST
     if (args.output_channel % 8 == 0 && args.input_channel % 8 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         if (args.bias_element) {
@@ -470,7 +503,7 @@ void depthwise_conv2d<int16_t, int32_t, int64_t>(void *args_ptr)
     c_impl_func_s16_t c_impl_func_sp = NULL;
     n_wise_func_s16_t n_wise_func = NULL;
 
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     dl_esp32p4_cfg_round(ROUND_MODE_HALF_EVEN);
 #endif
 
@@ -493,18 +526,22 @@ inline void load_depthwise_conv2d_33c1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
                                           ImplFunc_t<int8_t, int8_t> &i_impl_func_sp,
                                           const ArgsType<int8_t> &args)
 {
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     if (args.output_channel % 16 == 0 && args.input_channel % 16 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_33c1_bias;
-                i_impl_func = dl_esp32p4_s8_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_33c1_bias
+                                                           : dl_esp32p4_s8_depthwise_conv2d_33c1_bias;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_bias
+                                                        : dl_esp32p4_s8_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_33c1_bias_relu;
-                i_impl_func = dl_esp32p4_s8_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_33c1_bias_relu
+                                                           : dl_esp32p4_s8_depthwise_conv2d_33c1_bias_relu;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_bias_relu
+                                                        : dl_esp32p4_s8_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -517,12 +554,16 @@ inline void load_depthwise_conv2d_33c1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_33c1;
-                i_impl_func = dl_esp32p4_s8_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_33c1
+                                                           : dl_esp32p4_s8_depthwise_conv2d_33c1;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1
+                                                        : dl_esp32p4_s8_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_33c1_relu;
-                i_impl_func = dl_esp32p4_s8_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_33c1_relu
+                                                           : dl_esp32p4_s8_depthwise_conv2d_33c1_relu;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_relu
+                                                        : dl_esp32p4_s8_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -537,12 +578,19 @@ inline void load_depthwise_conv2d_33c1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1_bias;
-                i_impl_func = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_33c1_bias
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1_bias;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1_bias
+                                                        : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1_bias_relu;
-                i_impl_func = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_33c1_bias_relu
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1_bias_relu;
+                i_impl_func = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1_bias_relu
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -554,12 +602,17 @@ inline void load_depthwise_conv2d_33c1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1;
-                i_impl_func = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_33c1
+                                                           : dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1
+                                                        : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1_relu;
-                i_impl_func = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_33c1_relu
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_33c1_relu;
+                i_impl_func = args.mac_shift == INT_MIN ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1_relu
+                                                        : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -571,7 +624,7 @@ inline void load_depthwise_conv2d_33c1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         }
     }
     return;
-#elif CONFIG_TIE728_BOOST
+#elif CONFIG_PIE_V1_BOOST
     if (args.output_channel % 16 == 0 && args.input_channel % 16 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         switch (args.activation_type) {
@@ -601,16 +654,18 @@ inline void load_depthwise_conv2d_hwc1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
                                           ImplFunc_t<int8_t, int8_t> &i_impl_func_sp,
                                           const ArgsType<int8_t> &args)
 {
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     if (args.output_channel % 16 == 0 && args.input_channel % 16 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_bias
+                                                           : dl_esp32p4_s8_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_bias_relu
+                                                           : dl_esp32p4_s8_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -622,10 +677,12 @@ inline void load_depthwise_conv2d_hwc1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1
+                                                           : dl_esp32p4_s8_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_relu
+                                                           : dl_esp32p4_s8_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -639,10 +696,14 @@ inline void load_depthwise_conv2d_hwc1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         if (args.bias_element) {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1_bias
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1_bias_relu
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_bias_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -654,10 +715,13 @@ inline void load_depthwise_conv2d_hwc1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
         } else {
             switch (args.activation_type) {
             case Linear:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1;
+                i_impl_func_sp = args.mac_shift == INT_MIN ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1
+                                                           : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1;
                 break;
             case ReLU:
-                i_impl_func_sp = dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_relu;
+                i_impl_func_sp = args.mac_shift == INT_MIN
+                    ? dl_esp32p4_s8_unaligned_depthwise_conv2d_per_channel_hwc1_relu
+                    : dl_esp32p4_s8_unaligned_depthwise_conv2d_hwc1_relu;
                 break;
             case LeakyReLU:
                 // Don't be supported now.
@@ -670,7 +734,7 @@ inline void load_depthwise_conv2d_hwc1_s8(ImplFunc_t<int8_t, int8_t> &i_impl_fun
     }
     i_impl_func = i_impl_func_sp;
     return;
-#elif CONFIG_TIE728_BOOST
+#elif CONFIG_PIE_V1_BOOST
     if (args.output_channel % 16 == 0 && args.input_channel % 16 == 0 && !((unsigned)&args.input_element[0] & 15) &&
         !((unsigned)&args.output_element[0] & 15)) {
         switch (args.activation_type) {
@@ -798,7 +862,7 @@ void depthwise_conv2d<int8_t, int32_t, int32_t>(void *args_ptr)
     c_impl_func_s8_t c_impl_func_sp = NULL;
     n_wise_func_s8_t n_wise_func = NULL;
 
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     dl_esp32p4_cfg_round(ROUND_MODE_HALF_EVEN);
 #endif
 

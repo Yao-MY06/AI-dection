@@ -1,0 +1,19 @@
+{
+  "name": "AUD0014",
+  "raw_path": "F:\\AI-detection\\tools\\AUDIO\\qw\\AUD0014.RAW",
+  "wav_path": "F:\\AI-detection\\tools\\AUDIO\\wav\\AUD0014.wav",
+  "sample_rate": 16000,
+  "sample_count": 16000,
+  "duration_s": 1.0,
+  "mean": -80.741,
+  "dc_offset": -80.741,
+  "peak": 32616,
+  "peak_dbfs": -0.04,
+  "rms": 1816.215,
+  "rms_dbfs": -25.126,
+  "abs_mean": 179.981,
+  "zero_crossing_rate": 0.00025,
+  "clipped_ratio": 0.0,
+  "dominant_freq_hz": 1.0,
+  "spectral_centroid_hz": 1737.8
+}

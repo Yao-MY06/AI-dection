@@ -59,12 +59,16 @@ inline float sqrt_quick(float x)
  */
 inline float fast_inv_sqrt(float x)
 {
+#if DL_FAST_MATH
     float xhalf = 0.5f * x;
     int i = *(int *)&x;             // get bits for floating value
     i = 0x5f375a86 - (i >> 1);      // gives initial guess y0
     x = *(float *)&i;               // convert bits back to float
     x = x * (1.5f - xhalf * x * x); // Newton step, repeating increases accuracy
     return x;
+#else
+    return 1.0f / sqrtf(x);
+#endif
 }
 #pragma GCC diagnostic pop
 
@@ -228,6 +232,9 @@ inline ActivationFunction get_activation_function(const std::string &name)
 
 inline void softmax(float *x, int num)
 {
+    if (num <= 0) {
+        return;
+    }
     float max_input = x[0];
     for (int i = 1; i < num; i++) max_input = DL_MAX(max_input, x[i]);
 

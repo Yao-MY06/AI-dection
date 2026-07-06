@@ -1,18 +1,19 @@
 #include "dl_tool.hpp"
 #include <string.h>
+#include "soc/soc_caps.h"
 
 extern "C" {
 #if CONFIG_XTENSA_BOOST
 void dl_xtensa_bzero_32b(void *ptr, const int n);
 #endif
 
-#if CONFIG_TIE728_BOOST
+#if CONFIG_PIE_V1_BOOST
 void dl_tie728_bzero_128b(void *ptr, const int n);
 void dl_tie728_bzero(void *ptr, const int n);
 void dl_tie728_memcpy(void *dst, const void *src, const size_t n);
 #endif
 
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
 void dl_esp32p4_memcpy(void *dst, const void *src, const size_t n);
 #endif
 }
@@ -22,7 +23,7 @@ namespace tool {
 
 int round_half_even(float value)
 {
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     int ret;
     __asm__ volatile("fcvt.w.s %0, %1, rne" : "=r"(ret) : "f"(value));
     return ret;
@@ -81,7 +82,7 @@ int round_half_up(double value)
 template <typename T>
 int round(T value)
 {
-#if CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_ROUND_HALF_EVEN_ENABLED
     return round_half_even(value);
 #else
     return round_half_up(value);
@@ -137,7 +138,7 @@ T shift_and_round_half_up(T value, int shift)
 template <typename T>
 T shift_and_round(T value, int shift)
 {
-#if CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_ROUND_HALF_EVEN_ENABLED
     return shift_and_round_half_even(value, shift);
 #else
     return shift_and_round_half_up(value, shift);
@@ -149,7 +150,7 @@ template int64_t shift_and_round(int64_t value, int shift);
 
 void set_zero(void *ptr, const int n)
 {
-#if CONFIG_TIE728_BOOST
+#if CONFIG_PIE_V1_BOOST
     dl_tie728_bzero(ptr, n);
 #else
     bzero(ptr, n);
@@ -158,9 +159,9 @@ void set_zero(void *ptr, const int n)
 
 void copy_memory(void *dst, void *src, const size_t n)
 {
-#if CONFIG_ESP32P4_BOOST
+#if CONFIG_PIE_V2_BOOST
     dl_esp32p4_memcpy(dst, src, n);
-#elif CONFIG_TIE728_BOOST
+#elif CONFIG_PIE_V1_BOOST
     dl_tie728_memcpy(dst, src, n);
 #else
     memcpy(dst, src, n);
@@ -169,8 +170,12 @@ void copy_memory(void *dst, void *src, const size_t n)
 
 memory_addr_type_t memory_addr_type(void *address)
 {
-#if CONFIG_IDF_TARGET_ESP32P4
+#if defined(SOC_MEM_TCM_SUPPORTED)
     if (esp_ptr_in_tcm(address)) {
+        return MEMORY_ADDR_TCM;
+    }
+#elif defined(SOC_MEM_SPM_SUPPORTED)
+    if (esp_ptr_in_spm(address)) {
         return MEMORY_ADDR_TCM;
     }
 #endif
@@ -242,6 +247,12 @@ HEAP_IRAM_ATTR void *calloc_aligned(size_t n, size_t size, uint32_t caps)
     }
 
     return ret;
+}
+
+size_t get_aligned_size(size_t size, int alignment)
+{
+    assert(alignment > 0 && (alignment & (alignment - 1)) == 0 && "alignment must be a power of 2");
+    return (size + alignment - 1) & ~(alignment - 1);
 }
 
 float *gen_lut_8bit(float *table, int exponent, std::function<float(float)> func)

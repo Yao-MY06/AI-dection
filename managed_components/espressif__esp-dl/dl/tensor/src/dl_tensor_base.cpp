@@ -1,6 +1,7 @@
 #include "dl_tensor_base.hpp"
 #include "dl_base_pad.hpp"
 #include "dl_base_requantize_linear.hpp"
+#include "esp_random.h"
 #include <iostream>
 namespace dl {
 
@@ -8,8 +9,13 @@ template <typename RT, typename T>
 RT quantize(T input, float inv_scale)
 {
     int output = tool::round(input * inv_scale);
-    output = DL_CLIP(
-        output, sizeof(RT) == 1 ? DL_QUANT8_MIN : DL_QUANT16_MIN, sizeof(RT) == 1 ? DL_QUANT8_MAX : DL_QUANT16_MAX);
+
+    if constexpr (sizeof(RT) == 1) {
+        output = DL_CLIP(output, DL_QUANT8_MIN, DL_QUANT8_MAX);
+    } else {
+        output = DL_CLIP(output, DL_QUANT16_MIN, DL_QUANT16_MAX);
+    }
+
     return static_cast<RT>(output);
 }
 
@@ -167,9 +173,66 @@ TensorBase::TensorBase(
     this->caps = caps;
 }
 
+TensorBase::TensorBase(std::vector<int> shape,
+                       const void *element,
+                       const std::vector<int> &exponents,
+                       dtype_t dtype,
+                       bool deep,
+                       uint32_t caps)
+{
+    this->set_shape(shape);
+    this->exponent = ExponentInfo(exponents);
+    this->dtype = dtype;
+    this->cache = nullptr;
+    size_t dtype_bytes = this->get_dtype_bytes();
+    size_t aligned_size = this->get_aligned_size();
+    if (element) {
+        if (deep) {
+            this->auto_free = true;
+            this->data = tool::calloc_aligned(aligned_size, dtype_bytes, caps);
+            tool::copy_memory(this->data, const_cast<void *>(element), this->get_size() * dtype_bytes);
+        } else {
+            this->auto_free = false;
+            this->data = const_cast<void *>(element);
+        }
+    } else {
+        this->auto_free = true;
+        this->data = tool::calloc_aligned(aligned_size, dtype_bytes, caps);
+    }
+    if ((!element || deep) && !this->data) {
+        ESP_LOGE(
+            "TensorBase",
+            "Failed to alloc %.2fKB RAM, largest available PSRAM block size %.2fKB, internal RAM block size %.2fKB",
+            size / 1024.f,
+            heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024.f,
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024.f);
+    }
+    this->caps = caps;
+}
+
 bool TensorBase::assign(TensorBase *tensor)
 {
     if (tensor == nullptr || this->get_size() != tensor->get_size()) {
+        return false;
+    }
+
+    // Only the weights may use per-channel quantization.
+    bool this_per_channel = this->exponent.is_per_channel();
+    bool tensor_per_channel = tensor->exponent.is_per_channel();
+
+    if (this_per_channel || tensor_per_channel) {
+        if (this->exponent == tensor->exponent && this->dtype == tensor->dtype) {
+            tool::copy_memory(this->data, tensor->data, this->get_bytes());
+            return true;
+        }
+        ESP_LOGE("TensorBase::assign",
+                 "Per-channel tensor assign failed: exponent or dtype mismatch. "
+                 "this->exponent.is_per_channel=%d, tensor->exponent.is_per_channel=%d, "
+                 "this->dtype=%s, tensor->dtype=%s",
+                 this_per_channel,
+                 tensor_per_channel,
+                 dtype_to_string(this->dtype),
+                 dtype_to_string(tensor->dtype));
         return false;
     }
 
@@ -262,7 +325,7 @@ bool TensorBase::assign(TensorBase *tensor)
                 return false;
             }
         } else {
-#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_PIE_V1_BOOST || CONFIG_PIE_V2_BOOST
             if (this->get_size() > 50) {
                 std::vector<base::requantizeArgsType> args =
                     base::get_requantize_operation_args(this, tensor, RUNTIME_MODE_SINGLE_CORE);
@@ -342,6 +405,13 @@ TensorBase &TensorBase::set_element_ptr(void *data)
 
 TensorBase &TensorBase::set_shape(const std::vector<int> shape)
 {
+    if (shape.size() == 0) {
+        this->size = 1;
+        this->shape = shape;
+        this->axis_offset = {};
+        return *this;
+    }
+
     assert(shape.size() > 0);
     this->size = 1;
     for (int i = 0; i < shape.size(); ++i) {
@@ -558,7 +628,7 @@ void TensorBase::print(bool print_data)
              "shape: %s, dtype: %s, exponent: %d, auto_free: %d, data: %p",
              vector_to_string(get_shape()).c_str(),
              dtype_to_string(get_dtype()),
-             this->exponent,
+             (int)this->exponent,
              this->auto_free,
              this->data);
 
@@ -644,6 +714,11 @@ TensorBase *TensorBase::transpose(T *input_element,
                                   std::vector<int> &input_axis_offset,
                                   std::vector<int> &perm)
 {
+    if (shape.size() == 0 || input_shape.size() == 0) {
+        ((T *)this->get_element_ptr())[0] = input_element[0];
+        return this;
+    }
+
     if (perm.size() == 0) {
         for (int i = shape.size() - 1; i >= 0; i--) {
             perm.push_back(i);
@@ -880,7 +955,7 @@ bool TensorBase::equal(TensorBase *tensor, float epsilon, bool verbose)
     // compare tensor element
     if (this->exponent != tensor->exponent) {
         if (verbose) {
-            ESP_LOGE(__FUNCTION__, "exponent not equal: %d != %d", this->exponent, tensor->exponent);
+            ESP_LOGE(__FUNCTION__, "exponent not equal: %d != %d", (int)this->exponent, (int)tensor->exponent);
         }
         return false;
     }
@@ -953,6 +1028,12 @@ void _slice(TensorBase *input,
     T *output_element = output->get_element_ptr<T>();
     std::vector<int> input_shape = input->get_shape();
     int dims = input_shape.size();
+
+    if (dims == 0) {
+        output_element[0] = input_element[0];
+        return;
+    }
+
     std::vector<int> loop_start(dims, 0);
     std::vector<int> loop_end = input_shape;
     std::vector<int> loop_step(dims, 1);
@@ -1230,6 +1311,18 @@ TensorBase *TensorBase::pad(TensorBase *input,
     }
 
     return this;
+}
+
+void TensorBase::memset(int value)
+{
+    ::memset(this->data, value, this->get_bytes());
+}
+
+void TensorBase::rand()
+{
+    if (this->data) {
+        esp_fill_random(this->data, this->get_bytes());
+    }
 }
 
 } // namespace dl

@@ -1,0 +1,19 @@
+{
+  "name": "AUD0007",
+  "raw_path": "F:\\AI-detection\\tools\\AUDIO\\qw\\AUD0007.RAW",
+  "wav_path": "F:\\AI-detection\\tools\\AUDIO\\wav\\AUD0007.wav",
+  "sample_rate": 16000,
+  "sample_count": 16000,
+  "duration_s": 1.0,
+  "mean": 0.003,
+  "dc_offset": 0.003,
+  "peak": 32,
+  "peak_dbfs": -60.206,
+  "rms": 0.261,
+  "rms_dbfs": -101.984,
+  "abs_mean": 0.003,
+  "zero_crossing_rate": 0.0,
+  "clipped_ratio": 0.0,
+  "dominant_freq_hz": 1.0,
+  "spectral_centroid_hz": 3603.8
+}

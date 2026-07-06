@@ -27,6 +27,8 @@ TensorInfo::TensorInfo(std::string &name,
             this->shape.push_back(shape[i]);
             this->size *= shape[i];
         }
+    } else if (shape.size() == 0) {
+        this->size = 1;
     }
 
     if (dtype == DATA_TYPE_FLOAT || dtype == DATA_TYPE_INT32 || dtype == DATA_TYPE_UINT32) {
@@ -102,7 +104,7 @@ MemoryChunk::MemoryChunk(size_t size, int is_free, int alignment) : size(size), 
 MemoryChunk::MemoryChunk(TensorInfo *tensor, int alignment)
 {
     this->alignment = alignment;
-    this->size = this->get_aligned_size(tensor->get_size());
+    this->size = dl::tool::get_aligned_size(tensor->get_size(), this->alignment);
     this->is_free = false;
     this->tensor = tensor;
     this->offset = 0;
@@ -124,7 +126,7 @@ MemoryChunk *MemoryChunk::merge_free_chunk(MemoryChunk *chunk)
 
 MemoryChunk *MemoryChunk::insert(TensorInfo *tensor)
 {
-    int aligned_size = this->get_aligned_size(tensor->get_size());
+    int aligned_size = dl::tool::get_aligned_size(tensor->get_size(), this->alignment);
 
     if (this->is_free && this->size >= aligned_size) {
         this->tensor = tensor;
@@ -141,7 +143,7 @@ MemoryChunk *MemoryChunk::insert(TensorInfo *tensor)
 
 MemoryChunk *MemoryChunk::extend(TensorInfo *tensor)
 {
-    int aligned_size = this->get_aligned_size(tensor->get_size());
+    int aligned_size = dl::tool::get_aligned_size(tensor->get_size(), this->alignment);
 
     // only extend the size of memory chunk
     if (this->is_free && this->size < aligned_size) {
@@ -151,17 +153,6 @@ MemoryChunk *MemoryChunk::extend(TensorInfo *tensor)
         return this;
     }
     return nullptr;
-}
-
-size_t MemoryChunk::get_aligned_size(size_t size)
-{
-    int remainder = size % this->alignment;
-
-    if (remainder != 0) {
-        return size + this->alignment - remainder;
-    }
-
-    return size;
 }
 
 void print_memory_list(const char *tag, std::list<MemoryChunk *> &memory_list)
