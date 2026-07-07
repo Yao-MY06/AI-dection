@@ -64,7 +64,7 @@ static bool app_ppa_done_cb(ppa_client_handle_t ppa_client, ppa_event_data_t *ev
     g_ppa_read_idx = g_ppa_write_idx;
     g_ppa_write_idx = (g_ppa_write_idx + 1) % NUM_BUFS;
     g_ppa_busy = false;
-    g_ppa_done_cnt++;
+    g_ppa_done_cnt = g_ppa_done_cnt + 1;
     g_has_camera_frame = true;
     portEXIT_CRITICAL(&ppa_spinlock);
     return false;
@@ -224,7 +224,7 @@ void camera_video_frame_operation(uint8_t *camera_buf, uint8_t camera_buf_index,
     int64_t t_ppa_start = esp_timer_get_time();
     if (ppa_srm_handle) {
         portENTER_CRITICAL(&ppa_spinlock);
-        g_ppa_submit_cnt++;
+        g_ppa_submit_cnt = g_ppa_submit_cnt + 1;
         portEXIT_CRITICAL(&ppa_spinlock);
 
         esp_err_t ret = app_image_process(camera_buf, camera_buf_hes, camera_buf_ves, cam_buff[write_idx]);

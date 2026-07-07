@@ -10,7 +10,7 @@
 #include <stdint.h>
 
 #define AUDIO_AI_FEATURE_DIM      12
-#define AUDIO_AI_ZSCORE_THRESHOLD 3.725f
+#define AUDIO_AI_ZSCORE_THRESHOLD 3.000f
 
 typedef enum {
     AUDIO_AI_GOOD = 0,

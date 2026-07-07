@@ -16,10 +16,11 @@ extern "C" {
 /* 视频画面顶部 AI 状态条状态                                                 */
 /* ========================================================================== */
 typedef enum {
-    AI_OVERLAY_IDLE = 0,
-    AI_OVERLAY_DETECTING,
-    AI_OVERLAY_NG,
-    AI_OVERLAY_OK
+    AI_OVERLAY_IDLE = 0,      // 未启动
+    AI_OVERLAY_VISION,        // 视觉检测中
+    AI_OVERLAY_AUDIO,         // 听觉检测中
+    AI_OVERLAY_OK,            // 最终通过（多模态）
+    AI_OVERLAY_NG             // 最终不通过（多模态）
 } ai_overlay_state_t;
 
 /* ========================================================================== */

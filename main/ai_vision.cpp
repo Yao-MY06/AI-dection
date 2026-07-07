@@ -339,7 +339,7 @@ static bool parse_yolo_output(dl::TensorBase *out_tensor,
             continue;
         }
 
-        int class_id = (scratch > normal) ? 1 : 0;
+        int class_id = (scratch > normal * AI_NORMAL_BIAS) ? 1 : 0;
         float score = (class_id == 1) ? scratch : normal;
 
         if (isfinite(score)) {
@@ -560,7 +560,7 @@ static bool parse_yolo_outputs(dl::TensorBase *box_tensor,
             continue;
         }
 
-        int class_id = (scratch > normal) ? 1 : 0;
+        int class_id = (scratch > normal * AI_NORMAL_BIAS) ? 1 : 0;
         float score = (class_id == 1) ? scratch : normal;
 
         if (isfinite(score)) {
@@ -1070,9 +1070,10 @@ void ai_vision_task(void *pvParameters) {
                 g_sample_roi = roi;
                 g_sample_present = true;
 
-                float score_sum = det.normal_score + det.scratch_score;
+                float biased_normal = det.normal_score * AI_NORMAL_BIAS;
+                float score_sum = biased_normal + det.scratch_score;
                 if (score_sum > 0.0001f) {
-                    g_ai_ok_pct = det.normal_score / score_sum * 100.0f;
+                    g_ai_ok_pct = biased_normal / score_sum * 100.0f;
                     g_ai_ng_pct = det.scratch_score / score_sum * 100.0f;
                 } else {
                     g_ai_ok_pct = (det.class_id == 0) ? det.score * 100.0f : 0.0f;

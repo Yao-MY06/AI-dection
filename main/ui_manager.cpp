@@ -150,19 +150,54 @@ void update_audio_status(audio_state_t new_state) {
 }
 
 /* ========================================================================== */
+/* 多模态状态机跟踪                                                             */
+/* ========================================================================== */
+static int g_vision_result = -1;   // -1=未完成, 0=视觉OK, 1=视觉NG
+static int g_audio_result  = -1;   // -1=未完成, 0=听觉GOOD, 1=听觉ANOMALY
+
+static void ai_overlay_apply_final(void) {
+    if (g_vision_result < 0 || g_audio_result < 0) return;  // 两模态未齐
+    if (g_vision_result == 1 || g_audio_result == 1) {
+        update_ai_status_bar(AI_OVERLAY_NG);
+    } else {
+        update_ai_status_bar(AI_OVERLAY_OK);
+    }
+}
+
+void ai_overlay_set_vision_result(bool is_ok) {
+    g_vision_result = is_ok ? 0 : 1;
+    ai_overlay_apply_final();
+}
+
+void ai_overlay_set_audio_result(bool is_good) {
+    g_audio_result = is_good ? 0 : 1;
+    ai_overlay_apply_final();
+}
+
+static void ai_overlay_reset(void) {
+    g_vision_result = -1;
+    g_audio_result  = -1;
+}
+
+/* ========================================================================== */
 /* 视频画面顶部中央 AI 状态条更新                                               */
 /* ========================================================================== */
 void update_ai_status_bar(ai_overlay_state_t state) {
     if (!ai_overlay_bar || !ai_overlay_lab) return;
 
     switch (state) {
-        case AI_OVERLAY_DETECTING:
-            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_REFRESH " AI: DETECTING");
+        case AI_OVERLAY_VISION:
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_EYE_OPEN " AI: VISION");
             lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0x00D2FF), 0);
             lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x000000), 0);
             break;
+        case AI_OVERLAY_AUDIO:
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_AUDIO " AI: AUDIO");
+            lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0xFFAA00), 0);
+            lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x1A1000), 0);
+            break;
         case AI_OVERLAY_NG:
-            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_CLOSE " AI: NG DETECTED");
+            lv_label_set_text(ai_overlay_lab, LV_SYMBOL_CLOSE " AI: NG");
             lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0xFF3333), 0);
             lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x330000), 0);
             break;
@@ -178,10 +213,6 @@ void update_ai_status_bar(ai_overlay_state_t state) {
             lv_obj_set_style_bg_color(ai_overlay_bar, lv_color_hex(0x000000), 0);
             break;
     }
-}
-
-void update_ai_status_bar_bool(bool is_detecting) {
-    update_ai_status_bar(is_detecting ? AI_OVERLAY_DETECTING : AI_OVERLAY_IDLE);
 }
 
 /* ========================================================================== */
@@ -266,12 +297,6 @@ void update_ai_result_card(float ng_pct, float ok_pct) {
     }
     if (ai_ok_label) {
         lv_label_set_text_fmt(ai_ok_label, "AI OK: %.1f%%", ok_pct);
-    }
-    // 同步更新视频画面状态条
-    if (ng_pct > 60.0f) {
-        update_ai_status_bar(AI_OVERLAY_NG);
-    } else if (ok_pct > 60.0f) {
-        update_ai_status_bar(AI_OVERLAY_OK);
     }
 }
 
@@ -375,8 +400,9 @@ void ui_event_task(void *pvParameters) {
                 switch (ev.type) {
                     case CMD_VISION_START:
                         update_vision_status(VISION_STATE_RUNNING);
-                        update_ai_status_bar_bool(true);
-                        lighting_set_brightness(30);  // 开始检测时打开照明
+                        ai_overlay_reset();
+                        update_ai_status_bar(AI_OVERLAY_VISION);
+                        lighting_set_brightness(100);  // 开始检测时打开照明
                         ui_reset_sample_box();
 #if APP_ENABLE_SAMPLE_ROI
                         g_sample_background_capture_requested = true;
@@ -390,7 +416,15 @@ void ui_event_task(void *pvParameters) {
                         break;
                     case CMD_VISION_STOP:
                         update_vision_status(VISION_STATE_STOPPED);
-                        update_ai_status_bar_bool(false);
+                        update_ai_result_card(0.0f, 0.0f);  // 重置进度条
+                        if (ai_ng_label) lv_label_set_text(ai_ng_label, "AI NG: 0.0%");
+                        if (ai_ok_label) lv_label_set_text(ai_ok_label, "AI OK: 0.0%");
+                        if (ai_ng_fill) lv_obj_set_width(ai_ng_fill, 0);
+                        if (ai_ok_fill) lv_obj_set_width(ai_ok_fill, 0);
+                        g_ai_ng_pct = 0.0f;
+                        g_ai_ok_pct = 0.0f;
+                        ai_overlay_reset();
+                        update_ai_status_bar(AI_OVERLAY_IDLE);
                         lighting_set_brightness(0);  // 停止检测时关闭照明
 #if APP_ENABLE_SAMPLE_ROI
                         g_sample_present = false;
@@ -403,6 +437,7 @@ void ui_event_task(void *pvParameters) {
                     case CMD_AUDIO_START:
                         update_audio_status(AUDIO_STATE_RUNNING);
                         if (b_audio_start) lv_obj_add_state(b_audio_start, LV_STATE_DISABLED);
+                        update_ai_status_bar(AI_OVERLAY_AUDIO);
                         // 手动启动 1 秒录音
                         {
                             system_event_t rec_ev = {};
@@ -439,7 +474,8 @@ void ui_event_task(void *pvParameters) {
                         update_vision_status(VISION_STATE_EMERGENCY);
                         update_audio_status(AUDIO_STATE_EMERGENCY);
                         update_system_status(true);
-                        update_ai_status_bar_bool(false);
+                        ai_overlay_reset();
+                        update_ai_status_bar(AI_OVERLAY_IDLE);
                         lighting_set_brightness(0);  // 急停时关闭照明
 #if APP_ENABLE_SAMPLE_ROI
                         g_sample_present = false;
@@ -475,6 +511,7 @@ void ui_event_task(void *pvParameters) {
                         update_ai_result_card(g_ai_ng_pct, g_ai_ok_pct);
                         ui_update_sample_box(g_sample_present ? &g_sample_roi : NULL, true, true);
                         lv_textarea_add_text(log_box, "\n[AI] NORMAL OK");
+                        ai_overlay_set_vision_result(true);
                         break;
                     case EVENT_AI_DEFECT_FOUND:
                         count_fail++;
@@ -482,9 +519,9 @@ void ui_event_task(void *pvParameters) {
                         update_ai_result_card(g_ai_ng_pct, g_ai_ok_pct);
                         ui_update_sample_box(g_sample_present ? &g_sample_roi : NULL, true, false);
                         lv_textarea_add_text(log_box, ev.log_msg);
+                        ai_overlay_set_vision_result(false);
                         break;
                     case EVENT_AI_NO_DETECTION:
-                        update_ai_status_bar(AI_OVERLAY_DETECTING);
                         update_ai_result_card(g_ai_ng_pct, g_ai_ok_pct);
                         ui_reset_sample_box();
                         break;
@@ -518,6 +555,7 @@ void ui_event_task(void *pvParameters) {
                     case EVENT_AUDIO_AI_GOOD:
                     case EVENT_AUDIO_AI_ANOMALY:
                         ui_update_audio_ai_score(ev.type == EVENT_AUDIO_AI_GOOD, ev.log_msg);
+                        ai_overlay_set_audio_result(ev.type == EVENT_AUDIO_AI_GOOD);
                         break;
                     default: break;
                 }
@@ -614,6 +652,7 @@ void ui_create(void) {
     lv_obj_set_style_text_font(ai_overlay_lab, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(ai_overlay_lab, lv_color_hex(0x888888), 0);
     lv_obj_center(ai_overlay_lab);
+    lv_obj_add_flag(ai_overlay_bar, LV_OBJ_FLAG_HIDDEN);  // 默认隐藏
 
     // 半透明十字线叠加（辅助对齐）
     lv_obj_t *cross_h = lv_obj_create(scr);
@@ -918,7 +957,8 @@ void ui_create(void) {
     update_vision_status(VISION_STATE_STOPPED);
     update_audio_status(AUDIO_STATE_STOPPED);
     update_emergency_status(false);
-    update_ai_status_bar_bool(false);
+    ai_overlay_reset();
+    update_ai_status_bar(AI_OVERLAY_IDLE);
     bsp_display_unlock();
 }
 

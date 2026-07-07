@@ -38,6 +38,7 @@
 #define AI_DET_CONF_THRESHOLD  0.25f   // 纯分类模式阈值：低于此值视为无样品，正常样品通常 0.05~0.2
 
 #define AI_DET_SCORE_GAIN      1.0f    // 分数增益：正常量化模型用 1.0；如果量化把 score 压低了可临时调高
+#define AI_NORMAL_BIAS         1.0f    // normal 偏向系数：1.0=原始输出，>1 偏向好品
 #define AI_MONITOR_LOG_EVERY_N 1        // 每 N 次视觉推理输出一次 [AI_MON] 结构化诊断日志
 
 /* ========================================================================== */

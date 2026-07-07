@@ -55,9 +55,14 @@ void update_emergency_status(bool active);
 void update_ai_status_bar(ai_overlay_state_t state);
 
 /**
- * @brief 根据是否正在检测更新 AI 状态条
+ * @brief 设置视觉检测结果 (true=OK, false=NG)，两模态齐全后自动显示最终判定
  */
-void update_ai_status_bar_bool(bool is_detecting);
+void ai_overlay_set_vision_result(bool is_ok);
+
+/**
+ * @brief 设置听觉检测结果 (true=GOOD, false=ANOMALY)，两模态齐全后自动显示最终判定
+ */
+void ai_overlay_set_audio_result(bool is_good);
 
 /**
  * @brief 获取主视频 Canvas 句柄，供 video_pipeline 刷新显示
@@ -68,6 +73,10 @@ lv_obj_t *ui_get_camera_canvas(void);
  * @brief 更新右下角 AI 检测结果卡片（NG/OK 概率条）
  */
 void update_ai_result_card(float ng_pct, float ok_pct);
+
+/**
+ * @brief 开启/关闭 AI 结果卡片演示模式（OK 在 65-75% 随机波动）
+ */
 
 /**
  * @brief 更新良率与顶部统计卡片
